@@ -1,7 +1,8 @@
 export class InputHandler {
-  constructor(onMove, onStart) {
+  constructor(onMove, onStart, onPromptChoice) {
     this.onMove = onMove;
     this.onStart = onStart;
+    this.onPromptChoice = onPromptChoice;
   }
 
   bind() {
@@ -18,6 +19,8 @@ export class InputHandler {
         d: [1, 0]
       };
       if (key === 'Enter' || key === ' ') this.onStart();
+      if (key === 'y' || key === 'Y') this.onPromptChoice?.(true);
+      if (key === 'n' || key === 'N') this.onPromptChoice?.(false);
       if (dirs[key]) {
         event.preventDefault();
         this.onMove(...dirs[key]);

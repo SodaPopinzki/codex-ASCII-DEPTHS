@@ -44,6 +44,14 @@ body {
   min-height: 5.2rem;
   border: 1px solid #264126;
   padding: 0.5rem;
+  color: #ffffff;
+}
+
+.prompt {
+  margin-top: 0.5rem;
+  border: 1px solid #735f29;
+  padding: 0.35rem 0.5rem;
+  color: #ffffff;
 }
 
 .title-screen {

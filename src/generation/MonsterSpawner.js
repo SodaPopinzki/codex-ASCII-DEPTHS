@@ -10,7 +10,7 @@ export class MonsterSpawner {
       do {
         x = Math.floor(Math.random() * map.width);
         y = Math.floor(Math.random() * map.height);
-      } while (!map.isWalkable(x, y));
+      } while (!map.isWalkable(x, y) || (Math.abs(x - map.spawn.x) + Math.abs(y - map.spawn.y) < 8));
       monsters.push(new Monster(x, y, MonsterConfig[i % MonsterConfig.length]));
     }
     return monsters;
