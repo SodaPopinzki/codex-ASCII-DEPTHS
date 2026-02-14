@@ -2,17 +2,20 @@ import { Map } from '../game/Map.js';
 import { GameConfig } from '../config/GameConfig.js';
 
 export class DungeonGenerator {
-  static generate(width, height) {
+  static generate(width, height, floor = 1) {
     const { tileTypes, dungeon } = GameConfig;
+    if (floor === 10) return DungeonGenerator.generateBossFloor(width, height, tileTypes);
+
+    const profile = DungeonGenerator.getFloorProfile(floor, dungeon);
     const tiles = Array.from({ length: height }, () => Array.from({ length: width }, () => tileTypes.WALL));
     const rooms = [];
-    const roomCount = DungeonGenerator.randomInt(dungeon.rooms.min, dungeon.rooms.max);
+    const roomCount = DungeonGenerator.randomInt(profile.roomsMin, profile.roomsMax);
 
     let attempts = 0;
     while (rooms.length < roomCount && attempts < roomCount * 10) {
       attempts += 1;
-      const w = DungeonGenerator.randomInt(dungeon.roomSize.minWidth, dungeon.roomSize.maxWidth);
-      const h = DungeonGenerator.randomInt(dungeon.roomSize.minHeight, dungeon.roomSize.maxHeight);
+      const w = DungeonGenerator.randomInt(profile.minWidth, profile.maxWidth);
+      const h = DungeonGenerator.randomInt(profile.minHeight, profile.maxHeight);
       const x = DungeonGenerator.randomInt(1, width - w - 2);
       const y = DungeonGenerator.randomInt(1, height - h - 2);
       const room = { x, y, w, h, cx: x + Math.floor(w / 2), cy: y + Math.floor(h / 2) };
@@ -23,7 +26,7 @@ export class DungeonGenerator {
       }
     }
 
-    while (rooms.length < dungeon.rooms.min) {
+    while (rooms.length < profile.roomsMin) {
       const index = rooms.length;
       const w = 6;
       const h = 5;
@@ -38,7 +41,7 @@ export class DungeonGenerator {
       DungeonGenerator.connectRooms(tiles, rooms[i - 1], rooms[i], tileTypes);
     }
 
-    DungeonGenerator.placeWater(tiles, dungeon.waterChance, tileTypes);
+    DungeonGenerator.placeWater(tiles, profile.waterChance, tileTypes, rooms, profile.corridorsOnly);
 
     const startRoom = rooms[0] || { cx: 2, cy: 2 };
     const stairsUp = { x: startRoom.cx, y: startRoom.cy };
@@ -66,6 +69,67 @@ export class DungeonGenerator {
     }
     map.stairsUp = stairsUp;
     map.stairsDown = stairsDown;
+    return map;
+  }
+
+  static getFloorProfile(floor, dungeon) {
+    if (floor <= 3) {
+      return {
+        roomsMin: dungeon.rooms.min,
+        roomsMax: dungeon.rooms.max,
+        minWidth: 8,
+        maxWidth: 15,
+        minHeight: 6,
+        maxHeight: 10,
+        waterChance: floor >= 2 ? 0.02 : 0,
+        corridorsOnly: false
+      };
+    }
+    if (floor <= 6) {
+      return {
+        roomsMin: dungeon.rooms.min + 1,
+        roomsMax: dungeon.rooms.max + 2,
+        minWidth: 6,
+        maxWidth: 11,
+        minHeight: 5,
+        maxHeight: 8,
+        waterChance: 0.03,
+        corridorsOnly: false
+      };
+    }
+
+    return {
+      roomsMin: dungeon.rooms.min + 2,
+      roomsMax: dungeon.rooms.max + 3,
+      minWidth: 4,
+      maxWidth: 8,
+      minHeight: 4,
+      maxHeight: 7,
+      waterChance: floor >= 7 ? 0.07 : 0.04,
+      corridorsOnly: floor >= 7
+    };
+  }
+
+  static generateBossFloor(width, height, tileTypes) {
+    const tiles = Array.from({ length: height }, () => Array.from({ length: width }, () => tileTypes.WALL));
+    const cx = Math.floor(width / 2);
+    const cy = Math.floor(height / 2);
+    const radius = Math.min(Math.floor(width / 3), Math.floor(height / 2.5));
+    const room = { x: cx - radius, y: cy - radius, w: radius * 2, h: radius * 2, cx, cy };
+
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const dx = x - cx;
+        const dy = y - cy;
+        if (dx * dx + dy * dy <= radius * radius) tiles[y][x] = tileTypes.FLOOR;
+      }
+    }
+
+    const map = new Map(width, height, tiles);
+    map.rooms = [room];
+    map.spawn = { x: cx, y: cy + radius - 2 };
+    map.stairsUp = { x: map.spawn.x, y: map.spawn.y };
+    map.stairsDown = null;
     return map;
   }
 
@@ -114,10 +178,11 @@ export class DungeonGenerator {
     }
   }
 
-  static placeWater(tiles, chance, tileTypes) {
+  static placeWater(tiles, chance, tileTypes, rooms = [], corridorsOnly = false) {
     for (let y = 1; y < tiles.length - 1; y++) {
       for (let x = 1; x < tiles[0].length - 1; x++) {
-        if (tiles[y][x] === tileTypes.FLOOR && Math.random() < chance) {
+        const inRoom = rooms.some((room) => x >= room.x && x < room.x + room.w && y >= room.y && y < room.y + room.h);
+        if (tiles[y][x] === tileTypes.FLOOR && Math.random() < chance && (!corridorsOnly || !inRoom)) {
           tiles[y][x] = tileTypes.WATER;
         }
       }

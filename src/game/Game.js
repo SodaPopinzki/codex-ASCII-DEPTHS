@@ -15,9 +15,14 @@ import { Monster } from '../entities/Monster.js';
 
 export class Game {
   constructor() {
+    this.initializeRun();
+  }
+
+  initializeRun() {
     this.state = 'title';
     this.floor = 1;
-    this.map = DungeonGenerator.generate(GameConfig.map.width, GameConfig.map.height);
+    this.floorsCleared = 0;
+    this.map = DungeonGenerator.generate(GameConfig.map.width, GameConfig.map.height, this.floor);
     this.player = new Player(this.map.spawn.x, this.map.spawn.y);
     this.inventory = new Inventory(10);
     this.hunger = new Hunger();
@@ -26,13 +31,22 @@ export class Game {
     this.pendingStairsPrompt = false;
     this.inventoryOpen = false;
     this.dropMode = false;
+    this.monstersKilled = 0;
+    this.deathCause = '';
+    this.killer = '';
+    this.hasAmulet = false;
+    this.bossAbilityIndex = 0;
+    this.darknessTurns = 0;
+    this.lastDamageSource = 'unknown';
     this.player.equip(new Item(-1, -1, getStartingWeapon()));
     this.monsters = MonsterSpawner.spawn(this.map, this.floor);
     this.items = this.spawnItems();
+    this.addSpecialFloorFeatures();
     FOV.compute(this.map, this.player.x, this.player.y, this.player.vision);
   }
 
   spawnItems() {
+    if (this.floor === 10) return [];
     const count = 3 + Math.floor(Math.random() * 4);
     const items = [];
     const guaranteedFood = this.floor % 2 === 0;
@@ -51,6 +65,35 @@ export class Game {
     return items;
   }
 
+  addSpecialFloorFeatures() {
+    if (this.floor === 3) {
+      const [x, y] = this.findItemSpawn();
+      this.items.push(new Item(x, y, getItemById('short_sword')));
+      this.messageLog.add('You sense a stronger weapon hidden on this floor.');
+    }
+
+    if (this.floor === 5) {
+      const vaultRoom = this.map.rooms[this.map.rooms.length - 1];
+      for (let i = 0; i < 3; i++) {
+        const x = vaultRoom.x + 1 + Math.floor(Math.random() * Math.max(1, vaultRoom.w - 2));
+        const y = vaultRoom.y + 1 + Math.floor(Math.random() * Math.max(1, vaultRoom.h - 2));
+        this.items.push(new Item(x, y, getRandomItemTemplate(8)));
+      }
+      const troll = MonsterConfig.find((m) => m.type === 'Troll');
+      if (troll) this.monsters.push(new Monster(vaultRoom.cx, vaultRoom.cy, troll));
+      this.messageLog.add('A sealed vault glitters with treasure... and danger.');
+    }
+
+    if (this.floor === 10) {
+      const abyssLord = MonsterConfig.find((m) => m.type === 'Abyss Lord');
+      if (abyssLord) {
+        this.monsters = [new Monster(this.map.rooms[0].cx, this.map.rooms[0].cy, abyssLord)];
+        this.monsters[0].aiState = 'aware';
+      }
+      this.messageLog.add('The Abyss Lord rises from the darkness.');
+    }
+  }
+
   findItemSpawn() {
     const rooms = this.map.rooms?.length ? this.map.rooms : [{ x: 1, y: 1, w: this.map.width - 2, h: this.map.height - 2 }];
     for (let attempts = 0; attempts < 50; attempts++) {
@@ -67,6 +110,12 @@ export class Game {
     if (this.state === 'title') {
       this.state = 'playing';
       this.messageLog.add('You enter the first floor.');
+      return;
+    }
+    if (this.state === 'dead' || this.state === 'victory') {
+      this.initializeRun();
+      this.state = 'playing';
+      this.messageLog.add('A new descent begins.');
     }
   }
 
@@ -125,15 +174,23 @@ export class Game {
       this.pickUpItemAt(targetX, targetY);
 
       if (this.map.tiles[targetY][targetX] === GameConfig.tileTypes.STAIRS_DOWN) {
-        this.pendingStairsPrompt = true;
-        this.messageLog.add('Descend? (Y/N)');
+        if (this.floor === 10) {
+          if (this.hasAmulet) {
+            this.winGame();
+            return true;
+          }
+          this.messageLog.add('You need the Amulet of Depths to escape.');
+        } else {
+          this.pendingStairsPrompt = true;
+          this.messageLog.add(`Descend to Floor ${this.floor + 1}? (Y/N)`);
+        }
       }
     }
 
     if (!acted) return false;
 
     this.endTurn();
-    FOV.compute(this.map, this.player.x, this.player.y, this.player.vision);
+    FOV.compute(this.map, this.player.x, this.player.y, this.getCurrentVision());
     return true;
   }
 
@@ -141,6 +198,11 @@ export class Game {
     const itemIndex = this.items.findIndex((it) => it.x === x && it.y === y);
     if (itemIndex < 0) return;
     const item = this.items.splice(itemIndex, 1)[0];
+    if (item.id === 'amulet_of_depths') {
+      this.hasAmulet = true;
+      this.messageLog.add('You claim the Amulet of Depths!');
+      return;
+    }
     if (!this.inventory.add(item)) {
       this.items.push(item);
       this.messageLog.add('Your inventory is full.');
@@ -158,7 +220,7 @@ export class Game {
       this.inventory.remove(index);
       if (swapped) this.inventory.add(swapped);
       this.messageLog.add(`You equip ${item.name}.`);
-      FOV.compute(this.map, this.player.x, this.player.y, this.player.vision);
+      FOV.compute(this.map, this.player.x, this.player.y, this.getCurrentVision());
       return true;
     }
 
@@ -180,13 +242,14 @@ export class Game {
       this.messageLog.add('You eat the monster corpse.');
       if (Math.random() < 0.3) {
         this.player.hp -= 5;
+        this.lastDamageSource = 'rotten flesh';
         this.messageLog.add('The rotten flesh makes you violently sick.');
       }
     }
 
     this.inventory.remove(index);
     this.endTurn();
-    FOV.compute(this.map, this.player.x, this.player.y, this.player.vision);
+    FOV.compute(this.map, this.player.x, this.player.y, this.getCurrentVision());
     return true;
   }
 
@@ -242,6 +305,15 @@ export class Game {
   }
 
   onMonsterKilled(monster) {
+    this.monstersKilled += 1;
+
+    if (monster.type === 'Abyss Lord') {
+      this.items.push(new Item(monster.x, monster.y, getItemById('amulet_of_depths')));
+      this.map.tiles[this.map.spawn.y][this.map.spawn.x] = GameConfig.tileTypes.STAIRS_DOWN;
+      this.messageLog.add('The Abyss Lord falls. Escape stairs open behind you!');
+      return;
+    }
+
     const corpseTemplate = {
       id: `corpse_${monster.type.toLowerCase()}`,
       name: `${monster.type} Corpse`,
@@ -257,6 +329,7 @@ export class Game {
   }
 
   endTurn() {
+    if (this.state !== 'playing') return;
     this.takeMonsterTurn();
     if (this.map.tiles[this.player.y][this.player.x] === GameConfig.tileTypes.WATER || this.player.slowTurns > 0) {
       this.takeMonsterTurn();
@@ -268,20 +341,25 @@ export class Game {
     for (const entry of hungerResult.messages) this.messageLog.add(entry.text, entry.color);
     if (hungerResult.hpDamage > 0) {
       this.player.hp -= hungerResult.hpDamage;
+      this.lastDamageSource = 'starvation';
       this.messageLog.add('Starvation hurts you.', 'danger');
     }
 
     if (this.player.poisonTurns > 0) {
       this.player.poisonTurns -= 1;
       this.player.hp -= 1;
+      this.lastDamageSource = 'poison';
       this.messageLog.add('Poison burns through your veins for 1 damage.');
     }
 
     if (this.player.slowTurns > 0) this.player.slowTurns -= 1;
+    if (this.darknessTurns > 0) this.darknessTurns -= 1;
 
     if (this.player.hp <= 0) {
       this.state = 'dead';
-      this.messageLog.add('You have died. Permadeath is absolute.');
+      this.deathCause = this.lastDamageSource;
+      this.killer = this.lastDamageSource;
+      this.messageLog.add(`You died on Floor ${this.floor}.`);
     }
   }
 
@@ -289,17 +367,19 @@ export class Game {
     if (!this.pendingStairsPrompt) return false;
     this.pendingStairsPrompt = false;
     if (shouldDescend) {
+      this.floorsCleared += 1;
       this.floor += 1;
-      this.map = DungeonGenerator.generate(GameConfig.map.width, GameConfig.map.height);
+      this.map = DungeonGenerator.generate(GameConfig.map.width, GameConfig.map.height, this.floor);
       this.player.x = this.map.spawn.x;
       this.player.y = this.map.spawn.y;
       this.monsters = MonsterSpawner.spawn(this.map, this.floor);
       this.items = this.spawnItems();
-      this.messageLog.add(`You descend to floor ${this.floor}.`);
+      this.addSpecialFloorFeatures();
+      this.messageLog.add(`You descend to Floor ${this.floor}.`);
     } else {
       this.messageLog.add('You remain on this floor.');
     }
-    FOV.compute(this.map, this.player.x, this.player.y, this.player.vision);
+    FOV.compute(this.map, this.player.x, this.player.y, this.getCurrentVision());
     return true;
   }
 
@@ -309,6 +389,11 @@ export class Game {
 
       if (monster.regen > 0) {
         monster.hp = Math.min(monster.maxHp, monster.hp + monster.regen);
+      }
+
+      if (monster.type === 'Abyss Lord') {
+        this.takeAbyssLordTurn(monster);
+        continue;
       }
 
       MonsterAI.updateAwareness(monster, this);
@@ -333,6 +418,7 @@ export class Game {
         if (monster.breathCounter >= monster.breathCooldown && this.inDragonBreathLine(monster)) {
           monster.breathCounter = 0;
           this.player.hp -= 6;
+          this.lastDamageSource = 'Dragon breath';
           this.messageLog.add('The Dragon breathes fire down the corridor!');
           continue;
         }
@@ -342,6 +428,48 @@ export class Game {
       for (let action = 0; action < actions; action++) {
         if (monster.hp <= 0) break;
         if (this.resolveMonsterAction(monster)) break;
+      }
+    }
+  }
+
+  takeAbyssLordTurn(monster) {
+    const phaseActions = monster.hp > Math.floor(monster.maxHp * 0.66) ? 1 : monster.hp > Math.floor(monster.maxHp * 0.33) ? 2 : 3;
+    for (let i = 0; i < phaseActions; i++) {
+      const ability = this.bossAbilityIndex % 4;
+      this.bossAbilityIndex += 1;
+      if (ability === 0) {
+        this.darknessTurns = 10;
+        this.messageLog.add('The Abyss Lord casts Darkness! Your vision shrinks.');
+      } else if (ability === 1) {
+        this.summonTierTwoMonsters(3, monster);
+        this.messageLog.add('The Abyss Lord summons servants from the deep!');
+      } else if (ability === 2) {
+        const drain = Math.min(5, this.player.hp);
+        this.player.hp -= drain;
+        monster.hp = Math.min(monster.maxHp, monster.hp + drain);
+        this.lastDamageSource = 'Abyss Lord drain';
+        this.messageLog.add('The Abyss Lord drains your life force!');
+      } else if (this.resolveMonsterAction(monster)) {
+        break;
+      }
+    }
+  }
+
+  summonTierTwoMonsters(count, sourceMonster) {
+    const pool = MonsterConfig.filter((m) => m.tier === 2);
+    const directions = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
+    let spawned = 0;
+    for (const [dx, dy] of directions) {
+      if (spawned >= count) break;
+      const x = sourceMonster.x + dx;
+      const y = sourceMonster.y + dy;
+      const occupied = this.monsters.some((m) => m.hp > 0 && m.x === x && m.y === y) || (this.player.x === x && this.player.y === y);
+      if (!occupied && this.map.isWalkable(x, y)) {
+        const template = pool[Math.floor(Math.random() * pool.length)];
+        const summon = new Monster(x, y, template);
+        summon.aiState = 'aware';
+        this.monsters.push(summon);
+        spawned += 1;
       }
     }
   }
@@ -356,6 +484,7 @@ export class Game {
       if (!hit.hit) {
         this.messageLog.add(`The ${monster.type} misses you.`);
       } else {
+        this.lastDamageSource = monster.type;
         this.messageLog.add(`The ${monster.type} hits you for ${hit.damage} damage!`);
       }
       if (monster.poisonOnHit && hit.hit) {
@@ -426,6 +555,12 @@ export class Game {
     if (dx !== 0 && dy !== 0) return false;
     const dist = Math.abs(dx + dy);
     return dist > 0 && dist <= 3;
+  }
+
+  winGame() {
+    this.state = 'victory';
+    this.floorsCleared = 10;
+    this.finalScore = Math.floor((this.monstersKilled * 10) + this.player.gold + (this.floorsCleared * 100) - (this.turnCount / 10));
   }
 
   inBounds(x, y) {
