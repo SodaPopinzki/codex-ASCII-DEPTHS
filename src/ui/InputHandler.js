@@ -1,11 +1,14 @@
 export class InputHandler {
-  constructor(onMove, onStart, onPromptChoice, onToggleInventory, onInventorySlot, onDropMode) {
+  constructor(onMove, onStart, onPromptChoice, onToggleInventory, onInventorySlot, onDropMode, onToggleHelp, onToggleHistory, onWaitTurn) {
     this.onMove = onMove;
     this.onStart = onStart;
     this.onPromptChoice = onPromptChoice;
     this.onToggleInventory = onToggleInventory;
     this.onInventorySlot = onInventorySlot;
     this.onDropMode = onDropMode;
+    this.onToggleHelp = onToggleHelp;
+    this.onToggleHistory = onToggleHistory;
+    this.onWaitTurn = onWaitTurn;
   }
 
   bind() {
@@ -27,6 +30,18 @@ export class InputHandler {
       if (key === 'i' || key === 'I') {
         event.preventDefault();
         this.onToggleInventory?.();
+      }
+      if (key === '?' || (key === '/' && event.shiftKey)) {
+        event.preventDefault();
+        this.onToggleHelp?.();
+      }
+      if (key === 'm' || key === 'M') {
+        event.preventDefault();
+        this.onToggleHistory?.();
+      }
+      if (key === '.') {
+        event.preventDefault();
+        this.onWaitTurn?.(1);
       }
       if (key === 'd' || key === 'D') {
         const consumed = this.onDropMode?.();

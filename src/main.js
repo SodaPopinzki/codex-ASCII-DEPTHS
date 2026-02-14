@@ -8,64 +8,59 @@ const app = document.querySelector('#app');
 const game = new Game();
 const renderer = new Renderer(app);
 let dirty = true;
-let rafPending = false;
 
-const redraw = () => {
-  rafPending = false;
-  if (!dirty) return;
-  dirty = false;
-  if (game.state === 'title') renderer.renderTitle(() => {
-    game.start();
-    dirty = true;
-    scheduleRender();
-  });
+const draw = () => {
+  game.updateAnimations();
+  if (game.state === 'title') renderer.renderTitle(() => game.start());
   else renderer.render(game);
+  requestAnimationFrame(draw);
 };
 
-const scheduleRender = () => {
-  if (rafPending) return;
-  rafPending = true;
-  requestAnimationFrame(redraw);
+const refresh = () => {
+  dirty = true;
 };
 
 new InputHandler((dx, dy) => {
-  if (game.movePlayer(dx, dy)) {
-    dirty = true;
-    scheduleRender();
-  }
+  if (game.movePlayer(dx, dy)) refresh();
 }, () => {
   game.start();
-  dirty = true;
-  scheduleRender();
+  refresh();
 }, (choice) => {
-  if (game.respondStairs(choice)) {
-    dirty = true;
-    scheduleRender();
-  }
+  if (game.respondStairs(choice)) refresh();
 }, () => {
   game.toggleInventory();
-  dirty = true;
-  scheduleRender();
+  refresh();
 }, (index) => {
-  if (game.handleInventorySlot(index)) {
-    dirty = true;
-    scheduleRender();
-  }
-}, () => game.toggleDropMode()).bind();
+  if (game.handleInventorySlot(index)) refresh();
+}, () => game.toggleDropMode(), () => {
+  game.toggleHelp();
+  refresh();
+}, () => {
+  game.toggleHistory();
+  refresh();
+}, (turns) => {
+  if (game.waitTurn(turns)) refresh();
+}).bind();
 
 new MobileControls(app, (dx, dy) => {
-  if (game.movePlayer(dx, dy)) {
-    dirty = true;
-    scheduleRender();
+  if (game.movePlayer(dx, dy)) refresh();
+}, () => {
+  if (game.state === 'title') {
+    game.start();
+    refresh();
   }
 }, () => {
-  game.start();
-  dirty = true;
-  scheduleRender();
-}, () => {
   game.toggleInventory();
-  dirty = true;
-  scheduleRender();
+  refresh();
+}, () => {
+  if (game.waitTurn(1)) refresh();
+}, () => {
+  if (game.pendingStairsPrompt) {
+    game.respondStairs(true);
+    refresh();
+  }
+}, () => {
+  if (game.waitTurn(5)) refresh();
 }).mount();
 
-scheduleRender();
+requestAnimationFrame(draw);

@@ -5,8 +5,9 @@
 
 body {
   margin: 0;
-  background: #050805;
+  background: #0a0a0a;
   color: #d7ffd7;
+  text-shadow: 0 0 4px rgba(112, 255, 112, 0.2);
 }
 
 #app {
@@ -16,10 +17,29 @@ body {
   position: relative;
 }
 
+.game-shell {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.crt-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(180deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, rgba(0,0,0,0) 2px, rgba(0,0,0,0) 4px);
+  mix-blend-mode: soft-light;
+}
+
 .top-bar {
   border: 1px solid #264126;
   padding: 0.35rem;
   margin-bottom: 0.5rem;
+  transition: color 0.2s ease;
+}
+
+.low-hp {
+  color: #ff5a5a;
 }
 
 .ascii-grid {
@@ -32,11 +52,33 @@ body {
   border: 1px solid #264126;
   padding: 0.5rem;
   min-height: 30em;
+  transition: filter 0.3s ease, opacity 0.3s ease;
+}
+
+.room-transition .ascii-grid {
+  filter: saturate(1.2) brightness(1.1);
 }
 
 .ascii-grid span {
   width: 1ch;
   height: 1em;
+}
+
+.pickup-flash {
+  animation: pickup 0.25s ease;
+}
+
+.critical-cell::after {
+  content: 'CRITICAL!';
+  color: #ffd85f;
+  position: absolute;
+  transform: translateY(-0.9em);
+  font-size: 0.55rem;
+}
+
+@keyframes pickup {
+  from { background: rgba(255,255,140,0.8); }
+  to { background: transparent; }
 }
 
 .message-log {
@@ -47,8 +89,10 @@ body {
   color: #ffffff;
 }
 
+.msg-info, .msg-default { color: #ffffff; }
 .msg-warn { color: #f2d15c; }
-.msg-danger { color: #ff6b6b; }
+.msg-danger, .msg-playerDamage { color: #ff6b6b; }
+.msg-monsterDamage { color: #8fff8f; }
 
 .prompt {
   margin-top: 0.5rem;
@@ -57,16 +101,28 @@ body {
   color: #ffffff;
 }
 
-.inventory-overlay {
+.inventory-overlay,
+.overlay-panel {
   margin-top: 0.5rem;
   border: 1px solid #3a5a3a;
   padding: 0.5rem;
   background: rgba(5, 8, 5, 0.95);
 }
 
-.inventory-overlay h3 {
-  margin: 0 0 0.4rem;
-  font-size: 0.95rem;
+.overlay-panel {
+  max-height: 16rem;
+  overflow: auto;
+}
+
+.legend {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.history-scroll {
+  max-height: 12rem;
+  overflow-y: auto;
 }
 
 .title-screen {
@@ -81,13 +137,22 @@ body {
   overflow: auto;
 }
 
+.pulse {
+  animation: pulse 1.25s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
 .mobile-controls {
   display: none;
 }
 
 @media (max-width: 768px) {
   #app {
-    padding-bottom: 9rem;
+    padding-bottom: 10rem;
   }
   .mobile-controls {
     display: flex;
@@ -99,15 +164,27 @@ body {
     pointer-events: none;
   }
   .mobile-controls button {
+    min-width: 48px;
+    min-height: 48px;
     pointer-events: auto;
     background: #0d1a0d;
     border: 1px solid #3a5a3a;
     color: #d7ffd7;
     padding: 0.4rem 0.6rem;
+    font-family: inherit;
   }
   .actions {
     display: flex;
     gap: 0.35rem;
+    align-items: flex-end;
   }
-  .dpad { display: grid; gap: 0.3rem; }
+  .dpad {
+    display: grid;
+    justify-items: center;
+    gap: 0.3rem;
+  }
+  .dpad-row {
+    display: flex;
+    gap: 0.3rem;
+  }
 }

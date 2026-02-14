@@ -30,6 +30,8 @@ export class Game {
     this.turnCount = 0;
     this.pendingStairsPrompt = false;
     this.inventoryOpen = false;
+    this.helpOpen = false;
+    this.historyOpen = false;
     this.dropMode = false;
     this.monstersKilled = 0;
     this.deathCause = '';
@@ -38,6 +40,16 @@ export class Game {
     this.bossAbilityIndex = 0;
     this.darknessTurns = 0;
     this.lastDamageSource = 'unknown';
+    this.effects = {
+      roomTransition: 0,
+      playerBlink: 0,
+      lowHpBlink: 0,
+      pickupFlash: 0,
+      pickupFlashPos: null,
+      criticalFlash: 0,
+      criticalPos: null
+    };
+    this.deadMonsters = [];
     this.player.equip(new Item(-1, -1, getStartingWeapon()));
     this.monsters = MonsterSpawner.spawn(this.map, this.floor);
     this.items = this.spawnItems();
@@ -120,9 +132,29 @@ export class Game {
   }
 
   toggleInventory() {
-    if (this.state !== 'playing') return;
+    if (this.state !== 'playing' || this.helpOpen || this.historyOpen) return;
     this.inventoryOpen = !this.inventoryOpen;
     this.dropMode = false;
+  }
+
+  toggleHelp() {
+    if (this.state !== 'playing') return;
+    this.helpOpen = !this.helpOpen;
+    if (this.helpOpen) {
+      this.inventoryOpen = false;
+      this.historyOpen = false;
+      this.dropMode = false;
+    }
+  }
+
+  toggleHistory() {
+    if (this.state !== 'playing') return;
+    this.historyOpen = !this.historyOpen;
+    if (this.historyOpen) {
+      this.inventoryOpen = false;
+      this.helpOpen = false;
+      this.dropMode = false;
+    }
   }
 
   toggleDropMode() {
@@ -142,7 +174,7 @@ export class Game {
   }
 
   movePlayer(dx, dy) {
-    if (this.state !== 'playing' || (dx === 0 && dy === 0) || this.pendingStairsPrompt || this.inventoryOpen) return false;
+    if (this.state !== 'playing' || (dx === 0 && dy === 0) || this.pendingStairsPrompt || this.inventoryOpen || this.helpOpen || this.historyOpen) return false;
     const targetX = this.player.x + dx;
     const targetY = this.player.y + dy;
     let acted = false;
@@ -159,19 +191,26 @@ export class Game {
       } else if (!result.hit) {
         this.messageLog.add(`You miss the ${monster.type}.`);
       } else {
-        this.messageLog.add(`You hit the ${monster.type} for ${result.damage} damage.`);
-        if (result.critical) this.messageLog.add('Critical hit!');
+        this.messageLog.add(`You hit the ${monster.type} for ${result.damage} damage.`, 'monsterDamage');
+        if (result.critical) {
+          this.messageLog.add('CRITICAL!', 'warn');
+          this.effects.criticalFlash = 30;
+          this.effects.criticalPos = { x: monster.x, y: monster.y };
+        }
         if (monster.hp <= 0) {
-          this.messageLog.add(`The ${monster.type} dies.`);
+          this.messageLog.add(`The ${monster.type} dies.`, 'monsterDamage');
           this.onMonsterKilled(monster);
         }
       }
       acted = true;
     } else if (this.map.isWalkable(targetX, targetY)) {
+      const beforeRoom = this.currentRoomIndex();
       this.player.x = targetX;
       this.player.y = targetY;
       acted = true;
       this.pickUpItemAt(targetX, targetY);
+      const afterRoom = this.currentRoomIndex();
+      if (beforeRoom !== afterRoom) this.effects.roomTransition = 18;
 
       if (this.map.tiles[targetY][targetX] === GameConfig.tileTypes.STAIRS_DOWN) {
         if (this.floor === 10) {
@@ -179,10 +218,10 @@ export class Game {
             this.winGame();
             return true;
           }
-          this.messageLog.add('You need the Amulet of Depths to escape.');
+          this.messageLog.add('You need the Amulet of Depths to escape.', 'warn');
         } else {
           this.pendingStairsPrompt = true;
-          this.messageLog.add(`Descend to Floor ${this.floor + 1}? (Y/N)`);
+          this.messageLog.add(`Descend to Floor ${this.floor + 1}? (Y/N)`, 'info');
         }
       }
     }
@@ -200,15 +239,17 @@ export class Game {
     const item = this.items.splice(itemIndex, 1)[0];
     if (item.id === 'amulet_of_depths') {
       this.hasAmulet = true;
-      this.messageLog.add('You claim the Amulet of Depths!');
+      this.messageLog.add('You claim the Amulet of Depths!', 'info');
       return;
     }
     if (!this.inventory.add(item)) {
       this.items.push(item);
-      this.messageLog.add('Your inventory is full.');
+      this.messageLog.add('Your inventory is full.', 'warn');
       return;
     }
-    this.messageLog.add(`You pick up ${item.name}.`);
+    this.messageLog.add(`You pick up ${item.name}.`, 'info');
+    this.effects.pickupFlash = 10;
+    this.effects.pickupFlashPos = { x, y };
   }
 
   useInventoryItem(index) {
@@ -306,6 +347,7 @@ export class Game {
 
   onMonsterKilled(monster) {
     this.monstersKilled += 1;
+    this.deadMonsters.push({ x: monster.x, y: monster.y, glyph: monster.glyph, frames: 10 });
 
     if (monster.type === 'Abyss Lord') {
       this.items.push(new Item(monster.x, monster.y, getItemById('amulet_of_depths')));
@@ -342,14 +384,14 @@ export class Game {
     if (hungerResult.hpDamage > 0) {
       this.player.hp -= hungerResult.hpDamage;
       this.lastDamageSource = 'starvation';
-      this.messageLog.add('Starvation hurts you.', 'danger');
+      this.messageLog.add('Starvation hurts you.', 'playerDamage');
     }
 
     if (this.player.poisonTurns > 0) {
       this.player.poisonTurns -= 1;
       this.player.hp -= 1;
       this.lastDamageSource = 'poison';
-      this.messageLog.add('Poison burns through your veins for 1 damage.');
+      this.messageLog.add('Poison burns through your veins for 1 damage.', 'playerDamage');
     }
 
     if (this.player.slowTurns > 0) this.player.slowTurns -= 1;
@@ -482,10 +524,10 @@ export class Game {
     if (distance === 1) {
       const hit = Combat.melee(monster, this.player);
       if (!hit.hit) {
-        this.messageLog.add(`The ${monster.type} misses you.`);
+        this.messageLog.add(`The ${monster.type} misses you.`, 'info');
       } else {
         this.lastDamageSource = monster.type;
-        this.messageLog.add(`The ${monster.type} hits you for ${hit.damage} damage!`);
+        this.messageLog.add(`The ${monster.type} hits you for ${hit.damage} damage!`, 'playerDamage');
       }
       if (monster.poisonOnHit && hit.hit) {
         this.player.poisonTurns = Math.max(this.player.poisonTurns, 5);
@@ -514,6 +556,31 @@ export class Game {
     }
 
     return false;
+  }
+
+  waitTurn(turns = 1) {
+    if (this.state !== 'playing' || this.pendingStairsPrompt || this.inventoryOpen || this.helpOpen || this.historyOpen) return false;
+    for (let i = 0; i < turns; i++) {
+      this.messageLog.add('You wait and listen to the dungeon.', 'info');
+      this.endTurn();
+      if (this.state !== 'playing') break;
+    }
+    FOV.compute(this.map, this.player.x, this.player.y, this.getCurrentVision());
+    return true;
+  }
+
+  updateAnimations() {
+    this.effects.playerBlink = (this.effects.playerBlink + 1) % 60;
+    this.effects.lowHpBlink = (this.effects.lowHpBlink + 1) % 40;
+    if (this.effects.roomTransition > 0) this.effects.roomTransition -= 1;
+    if (this.effects.pickupFlash > 0) this.effects.pickupFlash -= 1;
+    if (this.effects.criticalFlash > 0) this.effects.criticalFlash -= 1;
+    for (const death of this.deadMonsters) death.frames -= 1;
+    this.deadMonsters = this.deadMonsters.filter((d) => d.frames > 0);
+  }
+
+  currentRoomIndex() {
+    return this.map.rooms.findIndex((room) => this.player.x >= room.x && this.player.x < room.x + room.w && this.player.y >= room.y && this.player.y < room.y + room.h);
   }
 
   summonSkeletonsAround(monster) {
@@ -561,6 +628,11 @@ export class Game {
     this.state = 'victory';
     this.floorsCleared = 10;
     this.finalScore = Math.floor((this.monstersKilled * 10) + this.player.gold + (this.floorsCleared * 100) - (this.turnCount / 10));
+  }
+
+  getCurrentVision() {
+    const darknessPenalty = this.darknessTurns > 0 ? 2 : 0;
+    return Math.max(3, this.player.vision - darknessPenalty);
   }
 
   inBounds(x, y) {
