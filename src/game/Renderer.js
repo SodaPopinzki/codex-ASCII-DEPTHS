@@ -1,4 +1,6 @@
 import { GameConfig } from '../config/GameConfig.js';
+import { MonsterConfig } from '../config/MonsterConfig.js';
+import { ItemConfig } from '../config/ItemConfig.js';
 
 export class Renderer {
   constructor(root) {
@@ -20,6 +22,7 @@ export class Renderer {
     const offsetX = Math.max(0, Math.min(game.player.x - Math.floor(width / 2), game.map.width - width));
 
     let gridHtml = '';
+    const transitionClass = game.effects.roomTransition > 0 ? 'room-transition' : '';
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const mapX = x + offsetX;
@@ -28,6 +31,7 @@ export class Renderer {
         let glyph = ' ';
         let color = GameConfig.colors.unseen;
         let weight = 'normal';
+        let extraClass = '';
 
         if (visible) {
           glyph = game.map.tiles[mapY][mapX];
@@ -39,6 +43,7 @@ export class Renderer {
         }
 
         const monster = game.monsters.find((m) => m.x === mapX && m.y === mapY && m.hp > 0);
+        const deadMonster = game.deadMonsters.find((m) => m.x === mapX && m.y === mapY);
         const item = game.items.find((it) => it.x === mapX && it.y === mapY);
         if (visible && item) {
           glyph = item.glyph;
@@ -48,28 +53,58 @@ export class Renderer {
           glyph = monster.aiState === 'sleeping' ? 'Z' : monster.glyph;
           color = monster.color;
           if (monster.bold) weight = 'bold';
+        } else if (visible && deadMonster) {
+          glyph = deadMonster.glyph;
+          color = '#ff3b3b';
         }
+
+        if (game.effects.pickupFlash > 0 && game.effects.pickupFlashPos?.x === mapX && game.effects.pickupFlashPos?.y === mapY) {
+          extraClass = 'pickup-flash';
+        }
+
         if (game.player.x === mapX && game.player.y === mapY && (visible || game.map.explored[mapY]?.[mapX])) {
           glyph = game.player.glyph;
-          color = game.player.color;
+          color = game.effects.playerBlink < 30 ? '#ffffff' : '#ffd85f';
           weight = 'bold';
         }
 
-        gridHtml += `<span style="color:${color};font-weight:${weight}">${glyph}</span>`;
+        if (game.effects.criticalFlash > 0 && game.effects.criticalPos?.x === mapX && game.effects.criticalPos?.y === mapY) {
+          extraClass = 'critical-cell';
+        }
+
+        gridHtml += `<span class="${extraClass}" style="color:${color};font-weight:${weight}">${glyph}</span>`;
       }
     }
 
     const weaponLabel = game.player.equipment.weapon ? `${game.player.equipment.weapon.name} (+${game.player.equipment.weapon.str})` : 'None';
     const armorLabel = game.player.equipment.armor ? `${game.player.equipment.armor.name} (+${game.player.equipment.armor.def})` : 'None';
+    const lowHp = game.player.hp / game.player.maxHp < 0.25;
 
     this.root.innerHTML = `
-      <header class="top-bar">HP ${game.player.hp}/${game.player.maxHp} | STR ${game.player.str} DEF ${game.player.def} | Hunger ${game.hunger.value} | Floor ${game.floor} | Turn ${game.turnCount}</header>
+      <div class="crt-overlay"></div>
+      <main class="game-shell ${transitionClass}">
+      <header class="top-bar ${lowHp && game.effects.lowHpBlink < 20 ? 'low-hp' : ''}">HP ${game.player.hp}/${game.player.maxHp} | STR ${game.player.str} DEF ${game.player.def} | Hunger ${game.hunger.value} | Floor ${game.floor} | Turn ${game.turnCount}</header>
       <header class="top-bar">Wpn: ${weaponLabel} | Arm: ${armorLabel} | Kills: ${game.monstersKilled} ${game.hasAmulet ? '| Amulet: Yes' : ''}</header>
       <section class="ascii-grid" style="grid-template-columns:repeat(${width}, 1ch)">${gridHtml}</section>
       ${game.pendingStairsPrompt ? `<section class="prompt">Descend to Floor ${game.floor + 1}? (Y/N)</section>` : ''}
       ${game.inventoryOpen ? this.renderInventory(game) : ''}
+      ${game.helpOpen ? this.renderHelp() : ''}
+      ${game.historyOpen ? this.renderHistory(game) : ''}
       <section class="message-log">${game.messageLog.messages.map((m) => `<div class="msg-${m.color}">${m.text}</div>`).join('')}</section>
+      </main>
     `;
+  }
+
+  renderHelp() {
+    const monsters = MonsterConfig.map((m) => `<li><b>${m.glyph}</b> = ${m.type}</li>`).join('');
+    const itemList = [...ItemConfig.weapons, ...ItemConfig.armor, ...ItemConfig.consumables];
+    const items = itemList.map((i) => `<li><b>${i.glyph}</b> = ${i.name}</li>`).join('');
+    return `<section class="overlay-panel"><h3>Help / Controls</h3><p>Arrows/WASD move | i inventory | d drop mode | . wait | ? help | M message history</p><div class="legend"><div><h4>Monsters</h4><ul>${monsters}</ul></div><div><h4>Items</h4><ul>${items}</ul></div></div></section>`;
+  }
+
+  renderHistory(game) {
+    const rows = [...game.messageLog.history].reverse().map((m) => `<div class="msg-${m.color}">${m.text}</div>`).join('');
+    return `<section class="overlay-panel history"><h3>Message History (M to close)</h3><div class="history-scroll">${rows}</div></section>`;
   }
 
   renderInventory(game) {
@@ -126,14 +161,13 @@ Press Enter to descend again
     this.root.innerHTML = `
       <section class="title-screen" role="button" tabindex="0">
 <pre>
-   ___   _____ _______ _____ _____   _____  ______ _____ _______ _    _  _____ 
-  / _ \ / ____|__   __|_   _|  __ \ |  __ \|  ____|  __ \__   __| |  | |/ ____|
- | | | | (___    | |    | | | |  | || |  | | |__  | |__) | | |  | |__| | (___  
- | | | |\___ \   | |    | | | |  | || |  | |  __| |  ___/  | |  |  __  |\___ \ 
- | |_| |____) |  | |   _| |_| |__| || |__| | |____| |      | |  | |  | |____) |
-  \___/|_____/   |_|  |_____|_____/ |_____/|______|_|      |_|  |_|  |_|_____/ 
+  ___   _____ _____ ___ ___   ___  ___ ___ _____ _  _ ___
+ / _ \ / ____|  ___|_ _|_ _| |   \| __| _ \_   _| || / __|
+| |_| |\__ \ | |__  | | | |  | |) | _||  _/ | | | __ \__ \
+ \___/ |___/ |____|___|___| |___/|___|_|   |_| |_||_|___/
 </pre>
-        <p>Press Enter or tap START to descend.</p>
+        <p class="pulse">Press Enter to Begin</p>
+        <p>Arrow Keys to Move | i = Inventory | d = Drop | ? = Help</p>
       </section>
     `;
     const title = this.root.querySelector('.title-screen');
