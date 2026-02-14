@@ -10,6 +10,7 @@ export class MobileControls {
   }
 
   mount() {
+    if (document.querySelector('.mobile-controls')) return;
     const controls = document.createElement('div');
     controls.className = 'mobile-controls';
     controls.innerHTML = `
@@ -56,7 +57,7 @@ export class MobileControls {
       touchStart = null;
     }, { passive: true });
 
-    this.root.appendChild(controls);
+    document.body.appendChild(controls);
     this.root.addEventListener('click', () => this.onStart?.(), { once: true });
   }
 }

@@ -10,6 +10,7 @@ await cp(new URL('../index.html', import.meta.url), new URL('../dist/index.html'
 const htmlPath = new URL('../dist/index.html', import.meta.url);
 let html = await readFile(htmlPath, 'utf8');
 html = html.replace('/src/main.js', './src/main.js');
+html = html.replace('/src/styles/main.css', './src/styles/main.css');
 await writeFile(htmlPath, html);
 
 if (existsSync(new URL('../netlify.toml', import.meta.url))) {
