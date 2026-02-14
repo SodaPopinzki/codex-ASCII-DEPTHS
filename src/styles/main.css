@@ -1,0 +1,86 @@
+:root {
+  color-scheme: dark;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+body {
+  margin: 0;
+  background: #050805;
+  color: #d7ffd7;
+}
+
+#app {
+  width: min(100vw, 84rem);
+  margin: 0 auto;
+  padding: 0.75rem;
+  position: relative;
+}
+
+.top-bar {
+  border: 1px solid #264126;
+  padding: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.ascii-grid {
+  display: grid;
+  grid-template-rows: repeat(30, 1em);
+  font-size: 16px;
+  line-height: 1;
+  gap: 0;
+  user-select: none;
+  border: 1px solid #264126;
+  padding: 0.5rem;
+  min-height: 30em;
+}
+
+.ascii-grid span {
+  width: 1ch;
+  height: 1em;
+}
+
+.message-log {
+  margin-top: 0.5rem;
+  min-height: 5.2rem;
+  border: 1px solid #264126;
+  padding: 0.5rem;
+}
+
+.title-screen {
+  border: 1px solid #264126;
+  padding: 1rem;
+  text-align: center;
+}
+
+.title-screen pre {
+  color: #8cff8c;
+  font-size: 0.8rem;
+  overflow: auto;
+}
+
+.mobile-controls {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  #app {
+    padding-bottom: 9rem;
+  }
+  .mobile-controls {
+    display: flex;
+    position: fixed;
+    bottom: 1rem;
+    left: 1rem;
+    right: 1rem;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+  .mobile-controls button {
+    pointer-events: auto;
+    background: #0d1a0d;
+    border: 1px solid #3a5a3a;
+    color: #d7ffd7;
+    padding: 0.4rem 0.6rem;
+  }
+  .dpad { display: grid; gap: 0.3rem; }
+}
