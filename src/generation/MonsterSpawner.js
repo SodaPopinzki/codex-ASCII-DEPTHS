@@ -3,10 +3,10 @@ import { MonsterConfig } from '../config/MonsterConfig.js';
 
 export class MonsterSpawner {
   static spawn(map, floor = 1) {
-    const count = 5 + Math.floor(Math.random() * 4);
+    if (floor === 10) return [];
+    const count = 5 + Math.floor(Math.random() * 4) + (floor >= 7 ? 2 : 0);
     const monsters = [];
-    const tier = floor <= 3 ? 1 : floor <= 6 ? 2 : 3;
-    const pool = MonsterConfig.filter((m) => m.tier <= tier && m.tier >= Math.max(1, tier - 1));
+    const pool = MonsterSpawner.getFloorPool(floor);
 
     const rooms = (map.rooms || []).filter((room) => !MonsterSpawner.isSpawnRoom(room, map.spawn));
     for (let i = 0; i < count; i++) {
@@ -33,6 +33,12 @@ export class MonsterSpawner {
     }
 
     return monsters;
+  }
+
+  static getFloorPool(floor) {
+    if (floor <= 3) return MonsterConfig.filter((m) => m.tier === 1);
+    if (floor <= 6) return MonsterConfig.filter((m) => m.tier === 1 || m.tier === 2);
+    return MonsterConfig.filter((m) => m.tier === 2 || m.tier === 3);
   }
 
   static isSpawnRoom(room, spawn) {

@@ -6,6 +6,15 @@ export class Renderer {
   }
 
   render(game) {
+    if (game.state === 'dead') {
+      this.renderGameOver(game);
+      return;
+    }
+    if (game.state === 'victory') {
+      this.renderVictory(game);
+      return;
+    }
+
     const { width, height } = GameConfig.viewport;
     const offsetY = Math.max(0, Math.min(game.player.y - Math.floor(height / 2), game.map.height - height));
     const offsetX = Math.max(0, Math.min(game.player.x - Math.floor(width / 2), game.map.width - width));
@@ -55,9 +64,9 @@ export class Renderer {
 
     this.root.innerHTML = `
       <header class="top-bar">HP ${game.player.hp}/${game.player.maxHp} | STR ${game.player.str} DEF ${game.player.def} | Hunger ${game.hunger.value} | Floor ${game.floor} | Turn ${game.turnCount}</header>
-      <header class="top-bar">Wpn: ${weaponLabel} | Arm: ${armorLabel}</header>
+      <header class="top-bar">Wpn: ${weaponLabel} | Arm: ${armorLabel} | Kills: ${game.monstersKilled} ${game.hasAmulet ? '| Amulet: Yes' : ''}</header>
       <section class="ascii-grid" style="grid-template-columns:repeat(${width}, 1ch)">${gridHtml}</section>
-      ${game.pendingStairsPrompt ? '<section class="prompt">Descend? (Y/N)</section>' : ''}
+      ${game.pendingStairsPrompt ? `<section class="prompt">Descend to Floor ${game.floor + 1}? (Y/N)</section>` : ''}
       ${game.inventoryOpen ? this.renderInventory(game) : ''}
       <section class="message-log">${game.messageLog.messages.map((m) => `<div class="msg-${m.color}">${m.text}</div>`).join('')}</section>
     `;
@@ -69,6 +78,39 @@ export class Renderer {
       return `<div>${i + 1}. ${item ? item.name : '-'}</div>`;
     }).join('');
     return `<section class="inventory-overlay"><h3>Inventory (1-0 use/equip, D + slot drop, I close)</h3>${rows}</section>`;
+  }
+
+  renderGameOver(game) {
+    this.root.innerHTML = `
+      <section class="title-screen">
+<pre>
+YOU DIED ON FLOOR ${game.floor}.
+Cause of death: ${game.deathCause || 'Unknown'}
+Killer: ${game.killer || 'Unknown'}
+Turns survived: ${game.turnCount}
+Monsters slain: ${game.monstersKilled}
+
+Press Enter to try again
+</pre>
+      </section>
+    `;
+  }
+
+  renderVictory(game) {
+    this.root.innerHTML = `
+      <section class="title-screen">
+<pre>
+Ascended with the Amulet of the Depths! Final Score: ${game.finalScore}
+
+Floors cleared: ${game.floorsCleared}
+Monsters killed: ${game.monstersKilled}
+Turns taken: ${game.turnCount}
+Gold collected: ${game.player.gold}
+
+Press Enter to descend again
+</pre>
+      </section>
+    `;
   }
 
   getTileColor(glyph, visible) {

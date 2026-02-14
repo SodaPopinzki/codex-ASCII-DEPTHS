@@ -17,7 +17,8 @@ export const ItemConfig = {
     { id: 'poison_cure', name: 'Poison Cure', type: 'consumable', subType: 'cure_poison', glyph: '!', color: '#3cb043', tier: 1, weight: 3 },
     { id: 'scroll_fireball', name: 'Scroll of Fireball', type: 'consumable', subType: 'fireball', glyph: '?', color: '#ff8c26', value: 20, tier: 2, weight: 2 },
     { id: 'scroll_teleport', name: 'Scroll of Teleport', type: 'consumable', subType: 'teleport', glyph: '?', color: '#4c78ff', tier: 2, weight: 2 },
-    { id: 'food_ration', name: 'Food Ration', type: 'consumable', subType: 'food', glyph: '%', color: '#8b5a2b', value: 50, tier: 1, weight: 5 }
+    { id: 'food_ration', name: 'Food Ration', type: 'consumable', subType: 'food', glyph: '%', color: '#8b5a2b', value: 50, tier: 1, weight: 5 },
+    { id: 'amulet_of_depths', name: 'Amulet of Depths', type: 'quest', glyph: '*', color: '#ffd700', tier: 4, weight: 0 }
   ]
 };
 
@@ -33,8 +34,9 @@ export function getItemById(id) {
 
 export function getRandomItemTemplate(floor, options = {}) {
   const { excludeFood = false } = options;
-  const tier = Math.min(3, Math.max(1, Math.ceil(floor / 3)));
-  const pool = ALL_ITEMS.filter((item) => item.tier <= tier && (!excludeFood || item.id !== 'food_ration'));
+  const maxTier = floor <= 3 ? 1 : floor <= 6 ? 2 : 3;
+  const minTier = floor <= 3 ? 1 : floor <= 6 ? 1 : 2;
+  const pool = ALL_ITEMS.filter((item) => item.tier >= minTier && item.tier <= maxTier && item.type !== 'quest' && (!excludeFood || item.id !== 'food_ration'));
   const totalWeight = pool.reduce((sum, item) => sum + (item.weight ?? 1), 0);
   let roll = Math.random() * totalWeight;
   for (const item of pool) {
