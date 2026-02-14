@@ -2,7 +2,7 @@ import { GameConfig } from '../config/GameConfig.js';
 import { DungeonGenerator } from '../generation/DungeonGenerator.js';
 import { MonsterSpawner } from '../generation/MonsterSpawner.js';
 import { Item } from '../entities/Item.js';
-import { ItemConfig } from '../config/ItemConfig.js';
+import { getItemById, getRandomItemTemplate, getStartingWeapon } from '../config/ItemConfig.js';
 import { Player } from '../entities/Player.js';
 import { FOV } from '../systems/FOV.js';
 import { Combat } from '../systems/Combat.js';
@@ -19,26 +19,48 @@ export class Game {
     this.floor = 1;
     this.map = DungeonGenerator.generate(GameConfig.map.width, GameConfig.map.height);
     this.player = new Player(this.map.spawn.x, this.map.spawn.y);
-    this.monsters = MonsterSpawner.spawn(this.map, this.floor);
-    this.items = this.spawnItems();
+    this.inventory = new Inventory(10);
     this.hunger = new Hunger();
-    this.inventory = new Inventory();
     this.messageLog = new MessageLog(GameConfig.ui.logRows);
     this.turnCount = 0;
     this.pendingStairsPrompt = false;
+    this.inventoryOpen = false;
+    this.dropMode = false;
+    this.player.equip(new Item(-1, -1, getStartingWeapon()));
+    this.monsters = MonsterSpawner.spawn(this.map, this.floor);
+    this.items = this.spawnItems();
     FOV.compute(this.map, this.player.x, this.player.y, this.player.vision);
   }
 
   spawnItems() {
-    return ItemConfig.map((cfg) => {
-      let x = this.map.spawn.x;
-      let y = this.map.spawn.y;
-      do {
-        x = Math.floor(Math.random() * this.map.width);
-        y = Math.floor(Math.random() * this.map.height);
-      } while (!this.map.isWalkable(x, y) || (x === this.map.spawn.x && y === this.map.spawn.y));
-      return new Item(x, y, cfg);
-    });
+    const count = 3 + Math.floor(Math.random() * 4);
+    const items = [];
+    const guaranteedFood = this.floor % 2 === 0;
+
+    for (let i = 0; i < count; i++) {
+      const template = getRandomItemTemplate(this.floor, { excludeFood: guaranteedFood && i > 0 });
+      const [x, y] = this.findItemSpawn();
+      items.push(new Item(x, y, template));
+    }
+
+    if (guaranteedFood) {
+      const [x, y] = this.findItemSpawn();
+      items.push(new Item(x, y, getItemById('food_ration')));
+    }
+
+    return items;
+  }
+
+  findItemSpawn() {
+    const rooms = this.map.rooms?.length ? this.map.rooms : [{ x: 1, y: 1, w: this.map.width - 2, h: this.map.height - 2 }];
+    for (let attempts = 0; attempts < 50; attempts++) {
+      const room = rooms[Math.floor(Math.random() * rooms.length)];
+      const x = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.w - 2));
+      const y = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.h - 2));
+      const occupied = this.items?.some((it) => it.x === x && it.y === y);
+      if (!occupied && this.map.isWalkable(x, y) && (x !== this.map.spawn.x || y !== this.map.spawn.y)) return [x, y];
+    }
+    return [this.map.spawn.x, this.map.spawn.y];
   }
 
   start() {
@@ -48,8 +70,30 @@ export class Game {
     }
   }
 
+  toggleInventory() {
+    if (this.state !== 'playing') return;
+    this.inventoryOpen = !this.inventoryOpen;
+    this.dropMode = false;
+  }
+
+  toggleDropMode() {
+    if (!this.inventoryOpen || this.state !== 'playing') return false;
+    this.dropMode = true;
+    this.messageLog.add('Choose a slot to drop.');
+    return true;
+  }
+
+  handleInventorySlot(index) {
+    if (!this.inventoryOpen || this.state !== 'playing') return false;
+    if (this.dropMode) {
+      this.dropMode = false;
+      return this.dropFromInventory(index);
+    }
+    return this.useInventoryItem(index);
+  }
+
   movePlayer(dx, dy) {
-    if (this.state !== 'playing' || (dx === 0 && dy === 0) || this.pendingStairsPrompt) return false;
+    if (this.state !== 'playing' || (dx === 0 && dy === 0) || this.pendingStairsPrompt || this.inventoryOpen) return false;
     const targetX = this.player.x + dx;
     const targetY = this.player.y + dy;
     let acted = false;
@@ -57,6 +101,10 @@ export class Game {
     const monster = this.monsters.find((m) => m.x === targetX && m.y === targetY && m.hp > 0);
     if (monster) {
       const result = Combat.melee(this.player, monster);
+      if (result.hit && this.player.equipment.weapon?.fireDamageVsUndead && /skeleton|lich|wraith/i.test(monster.type)) {
+        monster.hp -= this.player.equipment.weapon.fireDamageVsUndead;
+        result.damage += this.player.equipment.weapon.fireDamageVsUndead;
+      }
       if (result.dodged) {
         this.messageLog.add(`The ${monster.type} phases away from your strike.`);
       } else if (!result.hit) {
@@ -64,22 +112,17 @@ export class Game {
       } else {
         this.messageLog.add(`You hit the ${monster.type} for ${result.damage} damage.`);
         if (result.critical) this.messageLog.add('Critical hit!');
-        if (monster.hp <= 0) this.messageLog.add(`The ${monster.type} dies.`);
+        if (monster.hp <= 0) {
+          this.messageLog.add(`The ${monster.type} dies.`);
+          this.onMonsterKilled(monster);
+        }
       }
       acted = true;
     } else if (this.map.isWalkable(targetX, targetY)) {
       this.player.x = targetX;
       this.player.y = targetY;
       acted = true;
-      const itemIndex = this.items.findIndex((it) => it.x === targetX && it.y === targetY);
-      if (itemIndex >= 0) {
-        const item = this.items.splice(itemIndex, 1)[0];
-        this.inventory.add(item);
-        if (item.effect === 'heal') this.player.hp = Math.min(this.player.maxHp, this.player.hp + item.value);
-        if (item.effect === 'gold') this.player.gold += item.value;
-        if (item.effect === 'hunger') this.hunger.value = Math.min(100, this.hunger.value + item.value);
-        this.messageLog.add(`You pick up ${item.type}.`);
-      }
+      this.pickUpItemAt(targetX, targetY);
 
       if (this.map.tiles[targetY][targetX] === GameConfig.tileTypes.STAIRS_DOWN) {
         this.pendingStairsPrompt = true;
@@ -89,6 +132,131 @@ export class Game {
 
     if (!acted) return false;
 
+    this.endTurn();
+    FOV.compute(this.map, this.player.x, this.player.y, this.player.vision);
+    return true;
+  }
+
+  pickUpItemAt(x, y) {
+    const itemIndex = this.items.findIndex((it) => it.x === x && it.y === y);
+    if (itemIndex < 0) return;
+    const item = this.items.splice(itemIndex, 1)[0];
+    if (!this.inventory.add(item)) {
+      this.items.push(item);
+      this.messageLog.add('Your inventory is full.');
+      return;
+    }
+    this.messageLog.add(`You pick up ${item.name}.`);
+  }
+
+  useInventoryItem(index) {
+    const item = this.inventory.get(index);
+    if (!item) return false;
+
+    if (item.type === 'weapon' || item.type === 'armor') {
+      const swapped = this.player.equip(item);
+      this.inventory.remove(index);
+      if (swapped) this.inventory.add(swapped);
+      this.messageLog.add(`You equip ${item.name}.`);
+      FOV.compute(this.map, this.player.x, this.player.y, this.player.vision);
+      return true;
+    }
+
+    if (item.subType === 'heal') {
+      this.player.hp = Math.min(this.player.maxHp, this.player.hp + item.value);
+      this.messageLog.add('You feel revitalized.');
+    } else if (item.subType === 'cure_poison') {
+      this.player.poisonTurns = 0;
+      this.messageLog.add('The poison fades from your body.');
+    } else if (item.subType === 'fireball') {
+      this.castFireball(item.value);
+    } else if (item.subType === 'teleport') {
+      this.teleportPlayerToExploredTile();
+    } else if (item.subType === 'food') {
+      this.hunger.restore(item.value);
+      this.messageLog.add('You eat a food ration.');
+    } else if (item.subType === 'corpse') {
+      this.hunger.restore(20);
+      this.messageLog.add('You eat the monster corpse.');
+      if (Math.random() < 0.3) {
+        this.player.hp -= 5;
+        this.messageLog.add('The rotten flesh makes you violently sick.');
+      }
+    }
+
+    this.inventory.remove(index);
+    this.endTurn();
+    FOV.compute(this.map, this.player.x, this.player.y, this.player.vision);
+    return true;
+  }
+
+  dropFromInventory(index) {
+    const item = this.inventory.remove(index);
+    if (!item) return false;
+    this.items.push(new Item(this.player.x, this.player.y, item, item.meta));
+    this.messageLog.add(`You drop ${item.name}.`);
+    return true;
+  }
+
+  castFireball(damage) {
+    let target = null;
+    let bestDistance = Infinity;
+    for (const monster of this.monsters) {
+      if (monster.hp <= 0) continue;
+      const dist = Math.abs(monster.x - this.player.x) + Math.abs(monster.y - this.player.y);
+      if (dist < bestDistance) {
+        bestDistance = dist;
+        target = monster;
+      }
+    }
+    if (!target) {
+      this.messageLog.add('The scroll fizzles with no target.');
+      return;
+    }
+
+    for (const monster of this.monsters) {
+      if (monster.hp <= 0) continue;
+      if (Math.abs(monster.x - target.x) <= 1 && Math.abs(monster.y - target.y) <= 1) {
+        monster.hp -= damage;
+        if (monster.hp <= 0) this.onMonsterKilled(monster);
+      }
+    }
+    this.messageLog.add('A fiery explosion engulfs nearby enemies!');
+  }
+
+  teleportPlayerToExploredTile() {
+    const candidates = [];
+    for (let y = 0; y < this.map.height; y++) {
+      for (let x = 0; x < this.map.width; x++) {
+        if (this.map.explored[y][x] && this.map.isWalkable(x, y)) candidates.push([x, y]);
+      }
+    }
+    if (!candidates.length) {
+      this.messageLog.add('The scroll fails to lock onto a known location.');
+      return;
+    }
+    const [x, y] = candidates[Math.floor(Math.random() * candidates.length)];
+    this.player.x = x;
+    this.player.y = y;
+    this.messageLog.add('You blink through space.');
+  }
+
+  onMonsterKilled(monster) {
+    const corpseTemplate = {
+      id: `corpse_${monster.type.toLowerCase()}`,
+      name: `${monster.type} Corpse`,
+      type: 'consumable',
+      subType: 'corpse',
+      glyph: '%',
+      color: '#7d6b59'
+    };
+    this.items.push(new Item(monster.x, monster.y, corpseTemplate));
+    if (Math.random() < 0.25) {
+      this.items.push(new Item(monster.x, monster.y, getItemById('short_sword')));
+    }
+  }
+
+  endTurn() {
     this.takeMonsterTurn();
     if (this.map.tiles[this.player.y][this.player.x] === GameConfig.tileTypes.WATER || this.player.slowTurns > 0) {
       this.takeMonsterTurn();
@@ -96,10 +264,11 @@ export class Game {
     }
     this.turnCount += 1;
 
-    this.hunger.tick();
-    if (this.hunger.value === 0) {
-      this.player.hp -= 1;
-      this.messageLog.add('Starvation hurts you.');
+    const hungerResult = this.hunger.tick(this.turnCount);
+    for (const entry of hungerResult.messages) this.messageLog.add(entry.text, entry.color);
+    if (hungerResult.hpDamage > 0) {
+      this.player.hp -= hungerResult.hpDamage;
+      this.messageLog.add('Starvation hurts you.', 'danger');
     }
 
     if (this.player.poisonTurns > 0) {
@@ -114,9 +283,6 @@ export class Game {
       this.state = 'dead';
       this.messageLog.add('You have died. Permadeath is absolute.');
     }
-
-    FOV.compute(this.map, this.player.x, this.player.y, this.player.vision);
-    return true;
   }
 
   respondStairs(shouldDescend) {

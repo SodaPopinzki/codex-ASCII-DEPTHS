@@ -50,12 +50,25 @@ export class Renderer {
       }
     }
 
+    const weaponLabel = game.player.equipment.weapon ? `${game.player.equipment.weapon.name} (+${game.player.equipment.weapon.str})` : 'None';
+    const armorLabel = game.player.equipment.armor ? `${game.player.equipment.armor.name} (+${game.player.equipment.armor.def})` : 'None';
+
     this.root.innerHTML = `
-      <header class="top-bar">HP ${game.player.hp}/${game.player.maxHp} | STR ${game.player.str} DEF ${game.player.def} | Hunger ${game.hunger.value} | Floor ${game.floor} | Turn ${game.turnCount} | Gold ${game.player.gold}</header>
+      <header class="top-bar">HP ${game.player.hp}/${game.player.maxHp} | STR ${game.player.str} DEF ${game.player.def} | Hunger ${game.hunger.value} | Floor ${game.floor} | Turn ${game.turnCount}</header>
+      <header class="top-bar">Wpn: ${weaponLabel} | Arm: ${armorLabel}</header>
       <section class="ascii-grid" style="grid-template-columns:repeat(${width}, 1ch)">${gridHtml}</section>
       ${game.pendingStairsPrompt ? '<section class="prompt">Descend? (Y/N)</section>' : ''}
-      <section class="message-log">${game.messageLog.messages.map((m) => `<div>${m}</div>`).join('')}</section>
+      ${game.inventoryOpen ? this.renderInventory(game) : ''}
+      <section class="message-log">${game.messageLog.messages.map((m) => `<div class="msg-${m.color}">${m.text}</div>`).join('')}</section>
     `;
+  }
+
+  renderInventory(game) {
+    const rows = Array.from({ length: game.inventory.maxSlots }, (_, i) => {
+      const item = game.inventory.items[i];
+      return `<div>${i + 1}. ${item ? item.name : '-'}</div>`;
+    }).join('');
+    return `<section class="inventory-overlay"><h3>Inventory (1-0 use/equip, D + slot drop, I close)</h3>${rows}</section>`;
   }
 
   getTileColor(glyph, visible) {
