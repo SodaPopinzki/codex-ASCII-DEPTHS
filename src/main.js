@@ -1,4 +1,3 @@
-import './styles/main.css';
 import { Game } from './game/Game.js';
 import { Renderer } from './game/Renderer.js';
 import { InputHandler } from './ui/InputHandler.js';
