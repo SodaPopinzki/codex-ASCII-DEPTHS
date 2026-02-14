@@ -3,26 +3,66 @@ import { MonsterConfig } from '../config/MonsterConfig.js';
 import { ItemConfig } from '../config/ItemConfig.js';
 
 export class Renderer {
-  constructor(root) {
+  constructor(root, actions = {}) {
     this.root = root;
+    this.actions = actions;
+    this.cells = [];
+    this.prevCells = [];
+    this.screen = '';
   }
 
   render(game) {
-    if (game.state === 'dead') {
-      this.renderGameOver(game);
+    if (game.state === 'title' || game.state === 'dead' || game.state === 'victory') {
+      this.cells = [];
+      this.prevCells = [];
+      this.renderMetaScreen(game);
       return;
     }
-    if (game.state === 'victory') {
-      this.renderVictory(game);
-      return;
-    }
+    this.renderGameScreen(game);
+  }
 
+  renderMetaScreen(game) {
+    const titleArt = `
+  ___   _____ _____ ___ ___   ___  ___ ___ _____ _  _ ___
+ / _ \\ / ____|  ___|_ _|_ _| |   \\| __| _ \\_   _| || / __|
+| |_| |\\__ \\ | |__  | | | |  | |) | _||  _/ | | | __ \\__ \\
+ \\___/ |___/ |____|___|___| |___/|___|_|   |_| |_||_|___/
+`;
+    const showTitle = game.state === 'title';
+    const showDeath = game.state === 'dead';
+    const heading = showTitle ? 'ASCII Depths' : showDeath ? `You Died on Floor ${game.floor}` : 'Victory!';
+    const details = showTitle
+      ? '<p class="pulse">Press Enter to Begin</p>'
+      : `<p>Score: ${showDeath ? Math.max(0, Math.floor((game.monstersKilled * 10) + game.player.gold + (game.floor * 30) - (game.turnCount / 10))) : game.finalScore}</p><p>Kills: ${game.monstersKilled} | Gold: ${game.player.gold}</p>`;
+
+    this.root.innerHTML = `<section class="title-screen"><pre>${titleArt}</pre><h2>${heading}</h2>${details}
+      <div class="menu-row"><button data-act="start">Start</button><button data-act="scores">High Scores</button><button data-act="settings">Settings</button></div>
+      ${game.menuScreen === 'scores' ? this.renderScores(game) : ''}
+      ${game.menuScreen === 'settings' ? this.renderSettings(game) : ''}
+      <p>Arrow Keys to Move | i Inventory | Esc Pause | ? Help</p>
+    </section>`;
+    this.bindMenuActions();
+  }
+
+  renderGameScreen(game) {
     const { width, height } = GameConfig.viewport;
     const offsetY = Math.max(0, Math.min(game.player.y - Math.floor(height / 2), game.map.height - height));
     const offsetX = Math.max(0, Math.min(game.player.x - Math.floor(width / 2), game.map.width - width));
 
-    let gridHtml = '';
-    const transitionClass = game.effects.roomTransition > 0 ? 'room-transition' : '';
+    if (this.screen !== 'game') {
+      this.root.innerHTML = `<div class="crt-overlay"></div><main class="game-shell"><header class="top-bar stat1"></header><header class="top-bar stat2"></header><section class="ascii-grid" style="grid-template-columns:repeat(${width}, 1ch)"></section><section class="dynamic-panels"></section><section class="message-log"></section></main>`;
+      const grid = this.root.querySelector('.ascii-grid');
+      this.cells = Array.from({ length: width * height }, () => {
+        const span = document.createElement('span');
+        span.textContent = ' ';
+        grid.appendChild(span);
+        return span;
+      });
+      this.prevCells = Array.from({ length: width * height }, () => '');
+      this.screen = 'game';
+    }
+
+    const nextCells = [];
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const mapX = x + offsetX;
@@ -32,16 +72,13 @@ export class Renderer {
         let color = GameConfig.colors.unseen;
         let weight = 'normal';
         let extraClass = '';
-
         if (visible) {
           glyph = game.map.tiles[mapY][mapX];
           color = this.getTileColor(glyph, true);
-          if (glyph === GameConfig.tileTypes.STAIRS_UP || glyph === GameConfig.tileTypes.STAIRS_DOWN) weight = 'bold';
         } else if (game.map.explored[mapY]?.[mapX]) {
           glyph = game.map.tiles[mapY][mapX];
           color = GameConfig.colors.explored;
         }
-
         const monster = game.monsters.find((m) => m.x === mapX && m.y === mapY && m.hp > 0);
         const deadMonster = game.deadMonsters.find((m) => m.x === mapX && m.y === mapY);
         const item = game.items.find((it) => it.x === mapX && it.y === mapY);
@@ -52,54 +89,89 @@ export class Renderer {
         if (visible && monster) {
           glyph = monster.aiState === 'sleeping' ? 'Z' : monster.glyph;
           color = monster.color;
-          if (monster.bold) weight = 'bold';
+          weight = monster.bold ? 'bold' : 'normal';
         } else if (visible && deadMonster) {
           glyph = deadMonster.glyph;
           color = '#ff3b3b';
         }
-
-        if (game.effects.pickupFlash > 0 && game.effects.pickupFlashPos?.x === mapX && game.effects.pickupFlashPos?.y === mapY) {
-          extraClass = 'pickup-flash';
-        }
-
-        if (game.player.x === mapX && game.player.y === mapY && (visible || game.map.explored[mapY]?.[mapX])) {
+        if (game.player.x === mapX && game.player.y === mapY) {
           glyph = game.player.glyph;
-          color = game.effects.playerBlink < 30 ? '#ffffff' : '#ffd85f';
+          color = '#ffffff';
           weight = 'bold';
         }
-
-        if (game.effects.criticalFlash > 0 && game.effects.criticalPos?.x === mapX && game.effects.criticalPos?.y === mapY) {
-          extraClass = 'critical-cell';
-        }
-
-        gridHtml += `<span class="${extraClass}" style="color:${color};font-weight:${weight}">${glyph}</span>`;
+        if (game.effects.criticalFlash > 0 && game.effects.criticalPos?.x === mapX && game.effects.criticalPos?.y === mapY) extraClass = 'critical-cell';
+        if (game.effects.pickupFlash > 0 && game.effects.pickupFlashPos?.x === mapX && game.effects.pickupFlashPos?.y === mapY) extraClass = 'pickup-flash';
+        nextCells.push(`${glyph}|${color}|${weight}|${extraClass}`);
       }
     }
 
+    nextCells.forEach((sig, idx) => {
+      if (sig === this.prevCells[idx]) return;
+      const [glyph, color, weight, cls] = sig.split('|');
+      const el = this.cells[idx];
+      el.textContent = glyph;
+      el.style.color = color;
+      el.style.fontWeight = weight;
+      el.className = cls;
+      this.prevCells[idx] = sig;
+    });
+
+    const stat1 = this.root.querySelector('.stat1');
+    const stat2 = this.root.querySelector('.stat2');
+    const log = this.root.querySelector('.message-log');
+    const panel = this.root.querySelector('.dynamic-panels');
     const weaponLabel = game.player.equipment.weapon ? `${game.player.equipment.weapon.name} (+${game.player.equipment.weapon.str})` : 'None';
     const armorLabel = game.player.equipment.armor ? `${game.player.equipment.armor.name} (+${game.player.equipment.armor.def})` : 'None';
-    const lowHp = game.player.hp / game.player.maxHp < 0.25;
+    stat1.textContent = `HP ${game.player.hp}/${game.player.maxHp} | STR ${game.player.str} DEF ${game.player.def} | Hunger ${game.hunger.value} | Floor ${game.floor} | Turn ${game.turnCount}`;
+    stat2.textContent = `Wpn: ${weaponLabel} | Arm: ${armorLabel} | Kills: ${game.monstersKilled}`;
+    log.innerHTML = game.messageLog.messages.map((m) => `<div class="msg-${m.color}">${m.text}</div>`).join('');
 
-    this.root.innerHTML = `
-      <div class="crt-overlay"></div>
-      <main class="game-shell ${transitionClass}">
-      <header class="top-bar ${lowHp && game.effects.lowHpBlink < 20 ? 'low-hp' : ''}">HP ${game.player.hp}/${game.player.maxHp} | STR ${game.player.str} DEF ${game.player.def} | Hunger ${game.hunger.value} | Floor ${game.floor} | Turn ${game.turnCount}</header>
-      <header class="top-bar">Wpn: ${weaponLabel} | Arm: ${armorLabel} | Kills: ${game.monstersKilled} ${game.hasAmulet ? '| Amulet: Yes' : ''}</header>
-      <section class="ascii-grid" style="grid-template-columns:repeat(${width}, 1ch)">${gridHtml}</section>
-      ${game.pendingStairsPrompt ? `<section class="prompt">Descend to Floor ${game.floor + 1}? (Y/N)</section>` : ''}
-      ${game.inventoryOpen ? this.renderInventory(game) : ''}
-      ${game.helpOpen ? this.renderHelp() : ''}
-      ${game.historyOpen ? this.renderHistory(game) : ''}
-      <section class="message-log">${game.messageLog.messages.map((m) => `<div class="msg-${m.color}">${m.text}</div>`).join('')}</section>
-      </main>
-    `;
+    panel.innerHTML = `${game.pendingStairsPrompt ? `<section class="prompt">Descend to Floor ${game.floor + 1}? (Y/N)</section>` : ''}${game.inventoryOpen ? this.renderInventory(game) : ''}${game.helpOpen ? this.renderHelp() : ''}${game.historyOpen ? this.renderHistory(game) : ''}${game.pauseOpen ? this.renderPause(game) : ''}${game.menuScreen === 'settings' ? this.renderSettings(game) : ''}`;
+    this.bindMenuActions();
+  }
+
+  bindMenuActions() {
+    this.root.querySelectorAll('[data-act="start"]').forEach((el) => el.addEventListener('click', () => this.actions.onStart?.()));
+    this.root.querySelectorAll('[data-act="scores"]').forEach((el) => el.addEventListener('click', () => this.actions.onScores?.()));
+    this.root.querySelectorAll('[data-act="settings"]').forEach((el) => el.addEventListener('click', () => this.actions.onSettings?.()));
+    this.root.querySelectorAll('[data-act="close-menu"]').forEach((el) => el.addEventListener('click', () => this.actions.onCloseMenu?.()));
+    this.root.querySelectorAll('[data-act="resume"]').forEach((el) => el.addEventListener('click', () => this.actions.onPause?.()));
+
+    this.root.querySelectorAll('[data-setting]').forEach((el) => {
+      el.addEventListener('change', (event) => {
+        const target = event.target;
+        const key = target.dataset.setting;
+        const value = target.type === 'checkbox' ? target.checked : target.value;
+        this.actions.onUpdateSetting?.(key, value);
+      });
+    });
+  }
+
+  renderScores(game) {
+    const rows = game.highScores.map((entry, index) => `<tr class="${entry.id === game.lastQualifiedRunId ? 'highlight' : ''}"><td>${index + 1}</td><td>${entry.score}</td><td>${entry.floor}</td><td>${entry.cause}</td><td>${entry.date}</td></tr>`).join('');
+    return `<section class="overlay-panel"><h3>High Scores</h3><table class="score-table"><thead><tr><th>#</th><th>Score</th><th>Floor</th><th>Death/End</th><th>Date</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No runs yet.</td></tr>'}</tbody></table><p>Stats: Games ${game.stats.totalGames} | Kills ${game.stats.totalKills} | Deepest ${game.stats.deepestFloor} | Most Gold ${game.stats.mostGold}</p><button data-act="close-menu">Close</button></section>`;
+  }
+
+  renderSettings(game) {
+    const s = game.settings;
+    return `<section class="overlay-panel"><h3>Settings</h3>
+    <label>Font Size <select data-setting="fontSize"><option value="small" ${s.fontSize === 'small' ? 'selected' : ''}>Small (14px)</option><option value="medium" ${s.fontSize === 'medium' ? 'selected' : ''}>Medium (16px)</option><option value="large" ${s.fontSize === 'large' ? 'selected' : ''}>Large (18px)</option></select></label>
+    <label>Scanlines <input data-setting="scanlines" type="checkbox" ${s.scanlines ? 'checked' : ''}></label>
+    <label>CRT Effect <input data-setting="crt" type="checkbox" ${s.crt ? 'checked' : ''}></label>
+    <label>Mobile Controls <select data-setting="mobileControls"><option value="auto" ${s.mobileControls === 'auto' ? 'selected' : ''}>Auto-detect</option><option value="on" ${s.mobileControls === 'on' ? 'selected' : ''}>On</option><option value="off" ${s.mobileControls === 'off' ? 'selected' : ''}>Off</option></select></label>
+    <label>Theme <select data-setting="theme"><option value="green" ${s.theme === 'green' ? 'selected' : ''}>Classic Green</option><option value="amber" ${s.theme === 'amber' ? 'selected' : ''}>Amber</option><option value="white" ${s.theme === 'white' ? 'selected' : ''}>White</option></select></label>
+    <button data-act="close-menu">Close</button></section>`;
+  }
+
+  renderPause() {
+    return `<section class="overlay-panel"><h3>Paused</h3><div class="menu-row"><button data-act="resume">Resume</button><button data-act="settings">Settings</button></div></section>`;
   }
 
   renderHelp() {
     const monsters = MonsterConfig.map((m) => `<li><b>${m.glyph}</b> = ${m.type}</li>`).join('');
     const itemList = [...ItemConfig.weapons, ...ItemConfig.armor, ...ItemConfig.consumables];
     const items = itemList.map((i) => `<li><b>${i.glyph}</b> = ${i.name}</li>`).join('');
-    return `<section class="overlay-panel"><h3>Help / Controls</h3><p>Arrows/WASD move | i inventory | d drop mode | . wait | ? help | M message history</p><div class="legend"><div><h4>Monsters</h4><ul>${monsters}</ul></div><div><h4>Items</h4><ul>${items}</ul></div></div></section>`;
+    return `<section class="overlay-panel"><h3>Help / Controls</h3><p>Arrows/WASD move | i inventory | d drop mode | . wait | ? help | M history | Esc pause</p><div class="legend"><div><h4>Monsters</h4><ul>${monsters}</ul></div><div><h4>Items</h4><ul>${items}</ul></div></div></section>`;
   }
 
   renderHistory(game) {
@@ -115,39 +187,6 @@ export class Renderer {
     return `<section class="inventory-overlay"><h3>Inventory (1-0 use/equip, D + slot drop, I close)</h3>${rows}</section>`;
   }
 
-  renderGameOver(game) {
-    this.root.innerHTML = `
-      <section class="title-screen">
-<pre>
-YOU DIED ON FLOOR ${game.floor}.
-Cause of death: ${game.deathCause || 'Unknown'}
-Killer: ${game.killer || 'Unknown'}
-Turns survived: ${game.turnCount}
-Monsters slain: ${game.monstersKilled}
-
-Press Enter to try again
-</pre>
-      </section>
-    `;
-  }
-
-  renderVictory(game) {
-    this.root.innerHTML = `
-      <section class="title-screen">
-<pre>
-Ascended with the Amulet of the Depths! Final Score: ${game.finalScore}
-
-Floors cleared: ${game.floorsCleared}
-Monsters killed: ${game.monstersKilled}
-Turns taken: ${game.turnCount}
-Gold collected: ${game.player.gold}
-
-Press Enter to descend again
-</pre>
-      </section>
-    `;
-  }
-
   getTileColor(glyph, visible) {
     if (!visible) return GameConfig.colors.explored;
     if (glyph === GameConfig.tileTypes.WALL) return GameConfig.colors.wall;
@@ -155,22 +194,5 @@ Press Enter to descend again
     if (glyph === GameConfig.tileTypes.STAIRS_UP || glyph === GameConfig.tileTypes.STAIRS_DOWN) return GameConfig.colors.stairs;
     if (glyph === GameConfig.tileTypes.WATER) return GameConfig.colors.water;
     return GameConfig.colors.floor;
-  }
-
-  renderTitle(onStart) {
-    this.root.innerHTML = `
-      <section class="title-screen" role="button" tabindex="0">
-<pre>
-  ___   _____ _____ ___ ___   ___  ___ ___ _____ _  _ ___
- / _ \ / ____|  ___|_ _|_ _| |   \| __| _ \_   _| || / __|
-| |_| |\__ \ | |__  | | | |  | |) | _||  _/ | | | __ \__ \
- \___/ |___/ |____|___|___| |___/|___|_|   |_| |_||_|___/
-</pre>
-        <p class="pulse">Press Enter to Begin</p>
-        <p>Arrow Keys to Move | i = Inventory | d = Drop | ? = Help</p>
-      </section>
-    `;
-    const title = this.root.querySelector('.title-screen');
-    title?.addEventListener('click', onStart, { once: true });
   }
 }

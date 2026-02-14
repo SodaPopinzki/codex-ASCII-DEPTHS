@@ -12,9 +12,17 @@ import { MessageLog } from '../systems/MessageLog.js';
 import { MonsterAI } from '../systems/MonsterAI.js';
 import { MonsterConfig } from '../config/MonsterConfig.js';
 import { Monster } from '../entities/Monster.js';
+import { Persistence } from '../systems/Persistence.js';
 
 export class Game {
   constructor() {
+    this.persistence = new Persistence();
+    this.settings = this.persistence.getSettings();
+    this.highScores = this.persistence.getHighScores();
+    this.stats = this.persistence.getStats();
+    this.menuScreen = null;
+    this.pauseOpen = false;
+    this.lastQualifiedRunId = null;
     this.initializeRun();
   }
 
@@ -33,6 +41,7 @@ export class Game {
     this.helpOpen = false;
     this.historyOpen = false;
     this.dropMode = false;
+    this.pauseOpen = false;
     this.monstersKilled = 0;
     this.deathCause = '';
     this.killer = '';
@@ -120,61 +129,67 @@ export class Game {
 
   start() {
     if (this.state === 'title') {
+      this.menuScreen = null;
       this.state = 'playing';
       this.messageLog.add('You enter the first floor.');
       return;
     }
     if (this.state === 'dead' || this.state === 'victory') {
       this.initializeRun();
+      this.menuScreen = null;
       this.state = 'playing';
       this.messageLog.add('A new descent begins.');
     }
   }
 
   toggleInventory() {
-    if (this.state !== 'playing' || this.helpOpen || this.historyOpen) return;
+    if (this.state !== 'playing' || this.helpOpen || this.historyOpen || this.pauseOpen || this.menuScreen) return;
     this.inventoryOpen = !this.inventoryOpen;
     this.dropMode = false;
+    this.pauseOpen = false;
   }
 
   toggleHelp() {
-    if (this.state !== 'playing') return;
+    if (this.state !== 'playing' || this.pauseOpen || this.menuScreen) return;
     this.helpOpen = !this.helpOpen;
     if (this.helpOpen) {
       this.inventoryOpen = false;
       this.historyOpen = false;
       this.dropMode = false;
+    this.pauseOpen = false;
     }
   }
 
   toggleHistory() {
-    if (this.state !== 'playing') return;
+    if (this.state !== 'playing' || this.pauseOpen || this.menuScreen) return;
     this.historyOpen = !this.historyOpen;
     if (this.historyOpen) {
       this.inventoryOpen = false;
       this.helpOpen = false;
       this.dropMode = false;
+    this.pauseOpen = false;
     }
   }
 
   toggleDropMode() {
-    if (!this.inventoryOpen || this.state !== 'playing') return false;
+    if (!this.inventoryOpen || this.state !== 'playing' || this.pauseOpen || this.menuScreen) return false;
     this.dropMode = true;
     this.messageLog.add('Choose a slot to drop.');
     return true;
   }
 
   handleInventorySlot(index) {
-    if (!this.inventoryOpen || this.state !== 'playing') return false;
+    if (!this.inventoryOpen || this.state !== 'playing' || this.pauseOpen || this.menuScreen) return false;
     if (this.dropMode) {
       this.dropMode = false;
+    this.pauseOpen = false;
       return this.dropFromInventory(index);
     }
     return this.useInventoryItem(index);
   }
 
   movePlayer(dx, dy) {
-    if (this.state !== 'playing' || (dx === 0 && dy === 0) || this.pendingStairsPrompt || this.inventoryOpen || this.helpOpen || this.historyOpen) return false;
+    if (this.state !== 'playing' || (dx === 0 && dy === 0) || this.pendingStairsPrompt || this.inventoryOpen || this.helpOpen || this.historyOpen || this.pauseOpen || this.menuScreen) return false;
     const targetX = this.player.x + dx;
     const targetY = this.player.y + dy;
     let acted = false;
@@ -371,7 +386,7 @@ export class Game {
   }
 
   endTurn() {
-    if (this.state !== 'playing') return;
+    if (this.state !== 'playing' || this.pauseOpen || this.menuScreen) return;
     this.takeMonsterTurn();
     if (this.map.tiles[this.player.y][this.player.x] === GameConfig.tileTypes.WATER || this.player.slowTurns > 0) {
       this.takeMonsterTurn();
@@ -402,6 +417,7 @@ export class Game {
       this.deathCause = this.lastDamageSource;
       this.killer = this.lastDamageSource;
       this.messageLog.add(`You died on Floor ${this.floor}.`);
+      this.recordRun(false);
     }
   }
 
@@ -559,7 +575,7 @@ export class Game {
   }
 
   waitTurn(turns = 1) {
-    if (this.state !== 'playing' || this.pendingStairsPrompt || this.inventoryOpen || this.helpOpen || this.historyOpen) return false;
+    if (this.state !== 'playing' || this.pendingStairsPrompt || this.inventoryOpen || this.helpOpen || this.historyOpen || this.pauseOpen || this.menuScreen) return false;
     for (let i = 0; i < turns; i++) {
       this.messageLog.add('You wait and listen to the dungeon.', 'info');
       this.endTurn();
@@ -628,6 +644,49 @@ export class Game {
     this.state = 'victory';
     this.floorsCleared = 10;
     this.finalScore = Math.floor((this.monstersKilled * 10) + this.player.gold + (this.floorsCleared * 100) - (this.turnCount / 10));
+    this.recordRun(true);
+  }
+
+
+
+  recordRun(victory) {
+    const score = victory
+      ? this.finalScore
+      : Math.max(0, Math.floor((this.monstersKilled * 10) + this.player.gold + (this.floor * 30) - (this.turnCount / 10)));
+    this.lastQualifiedRunId = this.persistence.recordRun({
+      score,
+      floor: this.floor,
+      cause: victory ? 'Ascended with the Amulet' : (this.deathCause || 'Unknown'),
+      kills: this.monstersKilled,
+      gold: this.player.gold
+    });
+    this.highScores = this.persistence.getHighScores();
+    this.stats = this.persistence.getStats();
+  }
+
+  openScores() {
+    if (this.state === 'playing' && !this.pauseOpen) return;
+    this.menuScreen = 'scores';
+  }
+
+  openSettings() {
+    if (this.state === 'playing' && !this.pauseOpen) this.pauseOpen = true;
+    if (this.state === 'playing' || this.state === 'title' || this.state === 'dead' || this.state === 'victory') this.menuScreen = 'settings';
+  }
+
+  closeMenuScreen() {
+    this.menuScreen = null;
+  }
+
+  togglePause() {
+    if (this.state !== 'playing') return false;
+    this.pauseOpen = !this.pauseOpen;
+    if (!this.pauseOpen) this.menuScreen = null;
+    return true;
+  }
+
+  updateSetting(key, value) {
+    this.settings = this.persistence.updateSetting(key, value);
   }
 
   getCurrentVision() {

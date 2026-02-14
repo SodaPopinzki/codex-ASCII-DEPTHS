@@ -1,5 +1,5 @@
 export class InputHandler {
-  constructor(onMove, onStart, onPromptChoice, onToggleInventory, onInventorySlot, onDropMode, onToggleHelp, onToggleHistory, onWaitTurn) {
+  constructor(onMove, onStart, onPromptChoice, onToggleInventory, onInventorySlot, onDropMode, onToggleHelp, onToggleHistory, onWaitTurn, onTogglePause, onOpenScores, onOpenSettings, onCloseMenu) {
     this.onMove = onMove;
     this.onStart = onStart;
     this.onPromptChoice = onPromptChoice;
@@ -9,6 +9,10 @@ export class InputHandler {
     this.onToggleHelp = onToggleHelp;
     this.onToggleHistory = onToggleHistory;
     this.onWaitTurn = onWaitTurn;
+    this.onTogglePause = onTogglePause;
+    this.onOpenScores = onOpenScores;
+    this.onOpenSettings = onOpenSettings;
+    this.onCloseMenu = onCloseMenu;
   }
 
   bind() {
@@ -27,6 +31,10 @@ export class InputHandler {
       if (key === 'Enter' || key === ' ') this.onStart();
       if (key === 'y' || key === 'Y') this.onPromptChoice?.(true);
       if (key === 'n' || key === 'N') this.onPromptChoice?.(false);
+      if (key === 'Escape') this.onTogglePause?.();
+      if (key === 'h' || key === 'H') this.onOpenScores?.();
+      if (key === 'o' || key === 'O') this.onOpenSettings?.();
+      if (key === 'Backspace') this.onCloseMenu?.();
       if (key === 'i' || key === 'I') {
         event.preventDefault();
         this.onToggleInventory?.();

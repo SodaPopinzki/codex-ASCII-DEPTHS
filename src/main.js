@@ -6,18 +6,48 @@ import { MobileControls } from './ui/MobileControls.js';
 
 const app = document.querySelector('#app');
 const game = new Game();
-const renderer = new Renderer(app);
-let dirty = true;
+const renderer = new Renderer(app, {
+  onStart: () => {
+    game.start();
+    refresh();
+  },
+  onScores: () => {
+    game.openScores();
+    refresh();
+  },
+  onSettings: () => {
+    game.openSettings();
+    refresh();
+  },
+  onCloseMenu: () => {
+    game.closeMenuScreen();
+    refresh();
+  },
+  onPause: () => {
+    game.togglePause();
+    refresh();
+  },
+  onUpdateSetting: (key, value) => {
+    game.updateSetting(key, value);
+    applySettings();
+    refresh();
+  }
+});
 
-const draw = () => {
-  game.updateAnimations();
-  if (game.state === 'title') renderer.renderTitle(() => game.start());
-  else renderer.render(game);
-  requestAnimationFrame(draw);
+const applySettings = () => {
+  const { fontSize, theme, scanlines, crt, mobileControls } = game.settings;
+  document.documentElement.dataset.fontSize = fontSize;
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.classList.toggle('scanlines-off', !scanlines);
+  document.documentElement.classList.toggle('crt-off', !crt);
+  const isMobile = window.matchMedia('(max-width: 768px)').matches;
+  const showMobile = mobileControls === 'on' || (mobileControls === 'auto' && isMobile);
+  document.documentElement.classList.toggle('mobile-controls-enabled', showMobile);
 };
 
 const refresh = () => {
-  dirty = true;
+  game.updateAnimations();
+  renderer.render(game);
 };
 
 new InputHandler((dx, dy) => {
@@ -40,6 +70,17 @@ new InputHandler((dx, dy) => {
   refresh();
 }, (turns) => {
   if (game.waitTurn(turns)) refresh();
+}, () => {
+  if (game.togglePause()) refresh();
+}, () => {
+  game.openScores();
+  refresh();
+}, () => {
+  game.openSettings();
+  refresh();
+}, () => {
+  game.closeMenuScreen();
+  refresh();
 }).bind();
 
 new MobileControls(app, (dx, dy) => {
@@ -63,4 +104,5 @@ new MobileControls(app, (dx, dy) => {
   if (game.waitTurn(5)) refresh();
 }).mount();
 
-requestAnimationFrame(draw);
+applySettings();
+refresh();
