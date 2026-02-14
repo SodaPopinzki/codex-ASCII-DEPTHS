@@ -1,8 +1,9 @@
 export class MobileControls {
-  constructor(root, onMove, onStart) {
+  constructor(root, onMove, onStart, onInventory) {
     this.root = root;
     this.onMove = onMove;
     this.onStart = onStart;
+    this.onInventory = onInventory;
   }
 
   mount() {
@@ -14,12 +15,13 @@ export class MobileControls {
         <div><button data-dx="-1" data-dy="0">←</button><button data-dx="1" data-dy="0">→</button></div>
         <button data-dx="0" data-dy="1">↓</button>
       </div>
-      <div class="actions"><button data-action="start">START</button></div>
+      <div class="actions"><button data-action="start">START</button><button data-action="inventory">INV</button></div>
     `;
     controls.addEventListener('click', (event) => {
       const target = event.target;
       if (!(target instanceof HTMLButtonElement)) return;
       if (target.dataset.action === 'start') this.onStart();
+      if (target.dataset.action === 'inventory') this.onInventory?.();
       if (target.dataset.dx) this.onMove(Number(target.dataset.dx), Number(target.dataset.dy));
     });
 

@@ -1,11 +1,11 @@
 export class MessageLog {
   constructor(max = 4) {
     this.max = max;
-    this.messages = ['Welcome to ASCII Depths.'];
+    this.messages = [{ text: 'Welcome to ASCII Depths.', color: 'default' }];
   }
 
-  add(message) {
-    this.messages.push(message);
+  add(message, color = 'default') {
+    this.messages.push({ text: message, color });
     this.messages = this.messages.slice(-this.max);
   }
 }

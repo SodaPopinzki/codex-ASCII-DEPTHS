@@ -42,7 +42,16 @@ new InputHandler((dx, dy) => {
     dirty = true;
     scheduleRender();
   }
-}).bind();
+}, () => {
+  game.toggleInventory();
+  dirty = true;
+  scheduleRender();
+}, (index) => {
+  if (game.handleInventorySlot(index)) {
+    dirty = true;
+    scheduleRender();
+  }
+}, () => game.toggleDropMode()).bind();
 
 new MobileControls(app, (dx, dy) => {
   if (game.movePlayer(dx, dy)) {
@@ -51,6 +60,10 @@ new MobileControls(app, (dx, dy) => {
   }
 }, () => {
   game.start();
+  dirty = true;
+  scheduleRender();
+}, () => {
+  game.toggleInventory();
   dirty = true;
   scheduleRender();
 }).mount();

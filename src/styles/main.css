@@ -47,11 +47,26 @@ body {
   color: #ffffff;
 }
 
+.msg-warn { color: #f2d15c; }
+.msg-danger { color: #ff6b6b; }
+
 .prompt {
   margin-top: 0.5rem;
   border: 1px solid #735f29;
   padding: 0.35rem 0.5rem;
   color: #ffffff;
+}
+
+.inventory-overlay {
+  margin-top: 0.5rem;
+  border: 1px solid #3a5a3a;
+  padding: 0.5rem;
+  background: rgba(5, 8, 5, 0.95);
+}
+
+.inventory-overlay h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
 }
 
 .title-screen {
@@ -89,6 +104,10 @@ body {
     border: 1px solid #3a5a3a;
     color: #d7ffd7;
     padding: 0.4rem 0.6rem;
+  }
+  .actions {
+    display: flex;
+    gap: 0.35rem;
   }
   .dpad { display: grid; gap: 0.3rem; }
 }
