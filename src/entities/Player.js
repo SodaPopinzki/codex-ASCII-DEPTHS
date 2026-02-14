@@ -3,9 +3,13 @@ export class Player {
     this.x = x;
     this.y = y;
     this.glyph = '@';
-    this.color = '#8cff8c';
-    this.hp = 24;
-    this.maxHp = 24;
+    this.color = '#ffffff';
+    this.hp = 30;
+    this.maxHp = 30;
+    this.str = 10;
+    this.def = 5;
+    this.speed = 100;
+    this.vision = 8;
     this.gold = 0;
   }
 }

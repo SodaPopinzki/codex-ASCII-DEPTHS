@@ -8,7 +8,7 @@ export class Renderer {
   render(game) {
     const { width, height } = GameConfig.viewport;
     const offsetY = Math.max(0, Math.min(game.player.y - Math.floor(height / 2), game.map.height - height));
-    const offsetX = 0;
+    const offsetX = Math.max(0, Math.min(game.player.x - Math.floor(width / 2), game.map.width - width));
 
     let gridHtml = '';
     for (let y = 0; y < height; y++) {
@@ -18,10 +18,15 @@ export class Renderer {
         const visible = game.map.visibility[mapY]?.[mapX];
         let glyph = ' ';
         let color = GameConfig.colors.unseen;
+        let weight = 'normal';
 
         if (visible) {
           glyph = game.map.tiles[mapY][mapX];
-          color = glyph === '#' ? GameConfig.colors.wall : GameConfig.colors.floor;
+          color = this.getTileColor(glyph, true);
+          if (glyph === GameConfig.tileTypes.STAIRS_UP || glyph === GameConfig.tileTypes.STAIRS_DOWN) weight = 'bold';
+        } else if (game.map.explored[mapY]?.[mapX]) {
+          glyph = game.map.tiles[mapY][mapX];
+          color = GameConfig.colors.explored;
         }
 
         const monster = game.monsters.find((m) => m.x === mapX && m.y === mapY && m.hp > 0);
@@ -34,20 +39,31 @@ export class Renderer {
           glyph = monster.glyph;
           color = monster.color;
         }
-        if (game.player.x === mapX && game.player.y === mapY) {
+        if (game.player.x === mapX && game.player.y === mapY && (visible || game.map.explored[mapY]?.[mapX])) {
           glyph = game.player.glyph;
           color = game.player.color;
+          weight = 'bold';
         }
 
-        gridHtml += `<span style="color:${color}">${glyph}</span>`;
+        gridHtml += `<span style="color:${color};font-weight:${weight}">${glyph}</span>`;
       }
     }
 
     this.root.innerHTML = `
-      <header class="top-bar">HP ${game.player.hp}/${game.player.maxHp} | Hunger ${game.hunger.value} | Floor ${game.floor} | Gold ${game.player.gold}</header>
+      <header class="top-bar">HP ${game.player.hp}/${game.player.maxHp} | STR ${game.player.str} DEF ${game.player.def} | Hunger ${game.hunger.value} | Floor ${game.floor} | Turn ${game.turnCount} | Gold ${game.player.gold}</header>
       <section class="ascii-grid" style="grid-template-columns:repeat(${width}, 1ch)">${gridHtml}</section>
+      ${game.pendingStairsPrompt ? '<section class="prompt">Descend? (Y/N)</section>' : ''}
       <section class="message-log">${game.messageLog.messages.map((m) => `<div>${m}</div>`).join('')}</section>
     `;
+  }
+
+  getTileColor(glyph, visible) {
+    if (!visible) return GameConfig.colors.explored;
+    if (glyph === GameConfig.tileTypes.WALL) return GameConfig.colors.wall;
+    if (glyph === GameConfig.tileTypes.DOOR) return GameConfig.colors.door;
+    if (glyph === GameConfig.tileTypes.STAIRS_UP || glyph === GameConfig.tileTypes.STAIRS_DOWN) return GameConfig.colors.stairs;
+    if (glyph === GameConfig.tileTypes.WATER) return GameConfig.colors.water;
+    return GameConfig.colors.floor;
   }
 
   renderTitle(onStart) {
