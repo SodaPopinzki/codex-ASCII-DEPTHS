@@ -36,8 +36,9 @@ export class Renderer {
           color = item.color;
         }
         if (visible && monster) {
-          glyph = monster.glyph;
+          glyph = monster.aiState === 'sleeping' ? 'Z' : monster.glyph;
           color = monster.color;
+          if (monster.bold) weight = 'bold';
         }
         if (game.player.x === mapX && game.player.y === mapY && (visible || game.map.explored[mapY]?.[mapX])) {
           glyph = game.player.glyph;
